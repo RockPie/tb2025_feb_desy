@@ -1,0 +1,11 @@
+build/*
+data/*
+.vscode/*
+dump/*
+temp/*
+
+*.exe
+*.h2g
+*.log
+*.o
+*.out

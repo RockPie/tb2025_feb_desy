@@ -3,7 +3,11 @@ set(CMAKE_CXX_STANDARD 17)
 
 project(tb2025_feb_desy)
 
-# Find ROOT
+# Set ROOT installation path explicitly
+set(ROOT_DIR "/home/shihai/sw/root/root_install")  # Adjust to your ROOT installation path
+list(APPEND CMAKE_PREFIX_PATH ${ROOT_DIR})
+
+# Find ROOT with correct version
 find_package(ROOT REQUIRED COMPONENTS
     Core 
     RIO
@@ -12,9 +16,7 @@ find_package(ROOT REQUIRED COMPONENTS
     Hist
 )
 
-include_directories(
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-)
+include_directories(${ROOT_INCLUDE_DIRS})
 
 # Ensure FetchContent is available
 include(FetchContent)
@@ -27,11 +29,11 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(argparse)
 
-# Fetch easylogging++ (requires .cc file to be compiled)
+# Fetch easylogging++
 FetchContent_Declare(
     easyloggingpp
     GIT_REPOSITORY https://github.com/muflihun/easyloggingpp.git
-    GIT_TAG        v9.97.0  # Use a specific stable version
+    GIT_TAG        v9.97.0
 )
 FetchContent_MakeAvailable(easyloggingpp)
 

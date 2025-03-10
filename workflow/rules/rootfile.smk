@@ -8,14 +8,6 @@ DATA_DIR = "data/DESY_2025/data/beam"
 DUMP_DIR = "dump"
 LOG_DIR = "logs"
 
-# Ensure directories exist
-# rule init:
-#     output:
-#         DUMP_DIR,
-#         LOG_DIR
-#     shell:
-#         "mkdir -p {output}"
-
 # Find all RunXXX.h2g files
 data_files = glob(os.path.join(DATA_DIR, "Run*.h2g"))
 
@@ -51,4 +43,29 @@ rule EventRecon:
         mkdir -p {LOG_DIR}
         mkdir -p {DUMP_DIR}/101_EventRecon
         {input[0]} -f {input[1]} -o {output} &> {log}
+        """
+
+rule EventMatch:
+    input:
+        BUILD_DIR + "/102_EventMatch",
+        DUMP_DIR + "/101_EventRecon/Run{run_id}_recon.root"
+    output:
+        DUMP_DIR + "/102_EventMatch/Run{run_id}_matched.root"
+    log:
+        LOG_DIR + "/102_EventMatch/Run{run_id}_match.log"
+    shell:
+        """
+        mkdir -p {LOG_DIR}
+        mkdir -p {DUMP_DIR}/102_EventMatch
+        {input[0]} -f {input[1]} -o {output} &> {log}
+        """
+
+rule all:
+    input:
+        expand(DUMP_DIR + "/102_EventMatch/Run{run_id}_matched.root", run_id=run_ids)
+    output:
+        DUMP_DIR + "/all_matched.done"
+    shell:
+        """
+        touch {output}
         """

@@ -12,10 +12,10 @@ os.makedirs(BUILD_DIR, exist_ok=True)
 # Find all CXX scripts
 scripts = glob(os.path.join(SRC_DIR, "*.cxx"))
 
-# Rule to compile each script into an executable
-rule all:
-    input:
-        [os.path.join(BUILD_DIR, os.path.basename(script).replace(".cxx", "")) for script in scripts]
+# # Rule to compile each script into an executable
+# rule all:
+#     input:
+#         [os.path.join(BUILD_DIR, os.path.basename(script).replace(".cxx", "")) for script in scripts]
 
 rule compile:
     input:

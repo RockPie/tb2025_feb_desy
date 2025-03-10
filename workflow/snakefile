@@ -1,0 +1,2 @@
+include: "rules/compile.smk"
+include: "rules/rootfile.smk"

@@ -461,21 +461,22 @@ int main(int argc, char **argv){
     // -- Write the tree
     output_tree->Write();
     // -- Write the meta data
-    TNamed("script_name", script_name.c_str()).Write();
-    TNamed("script_version", script_version.c_str()).Write();
-    TNamed("script_input_file", script_input_file.c_str()).Write();
-    TNamed("script_output_file", script_output_file.c_str()).Write();
-    TNamed("script_n_events", std::to_string(script_n_events).c_str()).Write();
-    TNamed("script_output_folder", script_output_folder.c_str()).Write();
+    TNamed("Rootifier_script_name", script_name.c_str()).Write();
+    TNamed("Rootifier_script_version", script_version.c_str()).Write();
+    TNamed("Rootifier_script_input_file", script_input_file.c_str()).Write();
+    TNamed("Rootifier_script_output_file", script_output_file.c_str()).Write();
+    TNamed("Rootifier_script_n_events", std::to_string(script_n_events).c_str()).Write();
+    TNamed("Rootifier_script_output_folder", script_output_folder.c_str()).Write();
     // -- Write the runnning info
-    TNamed("counter_header_line", std::to_string(counter_header_line).c_str()).Write();
-    TNamed("counter_heartbeat_packet", std::to_string(counter_heartbeat_packet).c_str()).Write();
-    TNamed("counter_complete_20_lines", std::to_string(counter_complete_20_lines).c_str()).Write();
-    TNamed("counter_not_complete_20_lines", std::to_string(counter_not_complete_20_lines).c_str()).Write();
-    TNamed("counter_not_complete_20_lines_total", std::to_string(counter_not_complete_20_lines_total).c_str()).Write();
-    TNamed("counter_invalid_line", std::to_string(counter_invalid_line).c_str()).Write();
-    TNamed("counter_valid_line", std::to_string(counter_valid_line).c_str()).Write();
-
+    TNamed("Rootifier_counter_header_line", std::to_string(counter_header_line).c_str()).Write();
+    TNamed("Rootifier_counter_heartbeat_packet", std::to_string(counter_heartbeat_packet).c_str()).Write();
+    TNamed("Rootifier_counter_complete_20_lines", std::to_string(counter_complete_20_lines).c_str()).Write();
+    TNamed("Rootifier_counter_not_complete_20_lines", std::to_string(counter_not_complete_20_lines).c_str()).Write();
+    TNamed("Rootifier_counter_not_complete_20_lines_total", std::to_string(counter_not_complete_20_lines_total).c_str()).Write();
+    TNamed("Rootifier_counter_invalid_line", std::to_string(counter_invalid_line).c_str()).Write();
+    TNamed("Rootifier_counter_valid_line", std::to_string(counter_valid_line).c_str()).Write();
+    // -- Write the legal fpga id list
+    TNamed("Rootifier_legal_fpga_id_list", _legal_fpga_id_list_str.c_str()).Write();
     
     output_root->Close();
     return 0;

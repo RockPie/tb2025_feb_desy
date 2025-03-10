@@ -3,6 +3,7 @@ data/*
 .vscode/*
 dump/*
 temp/*
+.snakemake/*
 
 *.exe
 *.h2g

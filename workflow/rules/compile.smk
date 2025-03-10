@@ -23,4 +23,10 @@ rule compile:
     output:
         BUILD_DIR + "/{script}"
     shell:
-        "cd build && cmake .. && make {wildcards.script}"
+        """
+        export PATH=/home/shihai/sw/root/root_install/bin:$PATH
+        export LD_LIBRARY_PATH=/home/shihai/sw/root/root_install/lib:$LD_LIBRARY_PATH
+        export ROOTSYS=/home/shihai/sw/root/root_install
+        export PYTHONPATH=$ROOTSYS/lib:$PYTHONPATH
+        cd build && cmake .. && make {wildcards.script}
+        """

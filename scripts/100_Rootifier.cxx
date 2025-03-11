@@ -444,10 +444,18 @@ int main(int argc, char **argv){
 
     LOG(INFO) << "Total header lines: " << counter_header_line;
     LOG(INFO) << "Total heartbeat packets: " << counter_heartbeat_packet;
-    LOG(INFO) << "Total complete 20 lines: " << counter_complete_20_lines << " (" << counter_complete_20_lines / legal_fpga_id_list.size() / 20 << " samples per FPGA)";
-    LOG(INFO) << "Total not complete 20 lines: " << counter_not_complete_20_lines << " (" << counter_not_complete_20_lines_total / legal_fpga_id_list.size() << " samples per FPGA)";
-    LOG(INFO) << "Complete 20 lines percentage: " << (float)counter_complete_20_lines / (counter_complete_20_lines + counter_not_complete_20_lines) * 100 << "%";
-    LOG(INFO) << "Total valid line percentage: " << (float)counter_valid_line / (counter_valid_line + counter_invalid_line / 40) * 100 << "%";
+    if (legal_fpga_id_list.size() == 0) {
+        LOG(ERROR) << "No legal FPGA ID found!";
+    } else {
+        LOG(INFO) << "Total complete 20 lines: " << counter_complete_20_lines << " (" << counter_complete_20_lines / legal_fpga_id_list.size() / 20 << " samples per FPGA)";
+        LOG(INFO) << "Total not complete 20 lines: " << counter_not_complete_20_lines << " (" << counter_not_complete_20_lines_total / legal_fpga_id_list.size() << " samples per FPGA)";
+    }
+    if ((counter_complete_20_lines + counter_not_complete_20_lines) == 0) {
+        LOG(ERROR) << "No valid line found!";
+    } else {
+        LOG(INFO) << "Complete 20 lines percentage: " << (float)counter_complete_20_lines / (counter_complete_20_lines + counter_not_complete_20_lines) * 100 << "%";
+        LOG(INFO) << "Total valid line percentage: " << (float)counter_valid_line / (counter_valid_line + counter_invalid_line / 40) * 100 << "%";
+    }
     std::string _legal_fpga_id_list_str = "";
     for (auto &fpga_id : legal_fpga_id_list) {
         _legal_fpga_id_list_str += std::to_string(fpga_id) + " ";

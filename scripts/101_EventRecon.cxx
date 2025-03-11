@@ -308,7 +308,11 @@ int main(int argc, char **argv){
         }
     }
 
-    LOG(INFO) << "Good machine gun events: " << good_machine_gun_events << " (" << (float)good_machine_gun_events / (good_machine_gun_events + bad_machine_gun_events) * 100 << "%)";
+    if ((good_machine_gun_events + bad_machine_gun_events) == 0) {
+        LOG(ERROR) << "No machine gun events found!";
+    } else {
+        LOG(INFO) << "Good machine gun events: " << good_machine_gun_events << " (" << (float)good_machine_gun_events / (good_machine_gun_events + bad_machine_gun_events) * 100 << "%)";
+    }
 
     // Read the meta data from the input file
     TNamed *input_script_name_tnamed = (TNamed*) input_root->Get("Rootifier_script_name");

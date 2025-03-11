@@ -54,6 +54,7 @@ int main(int argc, char **argv){
     // * --------------------------------------------------------------------------------
     std::string script_input_file, script_output_file;
     int script_n_events;
+    bool script_verbose = false;
     std::string script_name = __FILE__;
     std::string script_version = "0.1";
     std::string script_output_folder;
@@ -68,12 +69,14 @@ int main(int argc, char **argv){
     program.add_argument("-f", "--file").help("Input .root file").required();
     program.add_argument("-o", "--output").help("Output .root file").required();
     program.add_argument("-e", "--events").help("Number of events to process").default_value(std::string("-1"));
+    program.add_argument("-v", "--verbose").help("Verbose mode").default_value(false).implicit_value(true);
     try {
         program.parse_args(argc, argv);
         script_input_file  = program.get<std::string>("--file");
         script_output_file = program.get<std::string>("--output");
         auto script_n_events_str = program.get<std::string>("--events");
         script_n_events    = std::stoi(script_n_events_str);
+        script_verbose     = program.get<bool>("--verbose");
     } catch (const std::runtime_error& err) {
         LOG(ERROR) << err.what();
         LOG(INFO) << program;
@@ -194,6 +197,7 @@ int main(int argc, char **argv){
     std::vector <UInt_t*> branch_last_heartbeat_list;
 
     for (int i = 0; i < fpga_number; i++) {
+        auto _fpga_id = legal_fpga_id_list[i];
         auto *branch_timestamps = new ULong64_t[machine_gun_samples];  // 64 bits
         auto *branch_daqh_list  = new UInt_t[4 * machine_gun_samples];    // 32 bits
         auto *branch_tc_list    = new Bool_t[FPGA_CHANNEL_NUMBER * machine_gun_samples];
@@ -204,15 +208,15 @@ int main(int argc, char **argv){
         auto *branch_crc32_list = new UInt_t[4 * machine_gun_samples];
         auto *branch_last_heartbeat = new UInt_t[machine_gun_samples];
 
-        output_tree->Branch(("timestamps_" + std::to_string(i)).c_str(), branch_timestamps, ("timestamps_" + std::to_string(i) + "[" + std::to_string(machine_gun_samples) + "]/l").c_str());
-        output_tree->Branch(("daqh_list_" + std::to_string(i)).c_str(), branch_daqh_list, ("daqh_list_" + std::to_string(i) + "[" + std::to_string(4 * machine_gun_samples) + "]/i").c_str());
-        output_tree->Branch(("tc_list_" + std::to_string(i)).c_str(), branch_tc_list, ("tc_list_" + std::to_string(i) + "[" + std::to_string(FPGA_CHANNEL_NUMBER * machine_gun_samples) + "]/O").c_str());
-        output_tree->Branch(("tp_list_" + std::to_string(i)).c_str(), branch_tp_list, ("tp_list_" + std::to_string(i) + "[" + std::to_string(FPGA_CHANNEL_NUMBER * machine_gun_samples) + "]/O").c_str());
-        output_tree->Branch(("val0_list_" + std::to_string(i)).c_str(), branch_val0_list, ("val0_list_" + std::to_string(i) + "[" + std::to_string(FPGA_CHANNEL_NUMBER * machine_gun_samples) + "]/i").c_str());
-        output_tree->Branch(("val1_list_" + std::to_string(i)).c_str(), branch_val1_list, ("val1_list_" + std::to_string(i) + "[" + std::to_string(FPGA_CHANNEL_NUMBER * machine_gun_samples) + "]/i").c_str());
-        output_tree->Branch(("val2_list_" + std::to_string(i)).c_str(), branch_val2_list, ("val2_list_" + std::to_string(i) + "[" + std::to_string(FPGA_CHANNEL_NUMBER * machine_gun_samples) + "]/i").c_str());
-        output_tree->Branch(("crc32_list_" + std::to_string(i)).c_str(), branch_crc32_list, ("crc32_list_" + std::to_string(i) + "[" + std::to_string(4 * machine_gun_samples) + "]/i").c_str());
-        output_tree->Branch(("last_heartbeat_" + std::to_string(i)).c_str(), branch_last_heartbeat, ("last_heartbeat_" + std::to_string(i) + "[" + std::to_string(machine_gun_samples) + "]/i").c_str());
+        output_tree->Branch(("timestamps_" + std::to_string(_fpga_id)).c_str(), branch_timestamps, ("timestamps_" + std::to_string(_fpga_id) + "[" + std::to_string(machine_gun_samples) + "]/l").c_str());
+        output_tree->Branch(("daqh_list_" + std::to_string(_fpga_id)).c_str(), branch_daqh_list, ("daqh_list_" + std::to_string(_fpga_id) + "[" + std::to_string(4 * machine_gun_samples) + "]/i").c_str());
+        output_tree->Branch(("tc_list_" + std::to_string(_fpga_id)).c_str(), branch_tc_list, ("tc_list_" + std::to_string(_fpga_id) + "[" + std::to_string(FPGA_CHANNEL_NUMBER * machine_gun_samples) + "]/O").c_str());
+        output_tree->Branch(("tp_list_" + std::to_string(_fpga_id)).c_str(), branch_tp_list, ("tp_list_" + std::to_string(_fpga_id) + "[" + std::to_string(FPGA_CHANNEL_NUMBER * machine_gun_samples) + "]/O").c_str());
+        output_tree->Branch(("val0_list_" + std::to_string(_fpga_id)).c_str(), branch_val0_list, ("val0_list_" + std::to_string(_fpga_id) + "[" + std::to_string(FPGA_CHANNEL_NUMBER * machine_gun_samples) + "]/i").c_str());
+        output_tree->Branch(("val1_list_" + std::to_string(_fpga_id)).c_str(), branch_val1_list, ("val1_list_" + std::to_string(_fpga_id) + "[" + std::to_string(FPGA_CHANNEL_NUMBER * machine_gun_samples) + "]/i").c_str());
+        output_tree->Branch(("val2_list_" + std::to_string(_fpga_id)).c_str(), branch_val2_list, ("val2_list_" + std::to_string(_fpga_id) + "[" + std::to_string(FPGA_CHANNEL_NUMBER * machine_gun_samples) + "]/i").c_str());
+        output_tree->Branch(("crc32_list_" + std::to_string(_fpga_id)).c_str(), branch_crc32_list, ("crc32_list_" + std::to_string(_fpga_id) + "[" + std::to_string(4 * machine_gun_samples) + "]/i").c_str());
+        output_tree->Branch(("last_heartbeat_" + std::to_string(_fpga_id)).c_str(), branch_last_heartbeat, ("last_heartbeat_" + std::to_string(_fpga_id) + "[" + std::to_string(machine_gun_samples) + "]/i").c_str());
 
         branch_timestamps_list.push_back(branch_timestamps);
         branch_daqh_list_list.push_back(branch_daqh_list);
@@ -228,6 +232,7 @@ int main(int argc, char **argv){
     // ! --- Do the event matching between FPGAs here -----------------------------------
     // ! --------------------------------------------------------------------------------
     const int SWMA_window_size = 50;
+    const int SWMA_window_max = 200; // if one pool reaches this size, all pools are cleared
     const int SWMA_variance = 200;
     int entry_max = input_tree->GetEntries();
     if (script_n_events > 0 && script_n_events < entry_max) {
@@ -269,6 +274,13 @@ int main(int argc, char **argv){
             flag_last_entry = true;
         }
         auto _fpga_id = input_fpga_id;
+        auto _fpga_index = -1;
+        for (int i = 0; i < fpga_number; i++) {
+            if (_fpga_id == legal_fpga_ids[i]) {
+                _fpga_index = i;
+                break;
+            }
+        }
         auto _timestamp = input_timestamps[0];
         // check if the fpga_id is legal
         bool flag_legal_fpga_id = false;
@@ -303,16 +315,16 @@ int main(int argc, char **argv){
         std::copy(input_crc32_list, input_crc32_list + 4 * machine_gun_samples, _crc32_list);
         std::copy(input_last_heartbeat, input_last_heartbeat + machine_gun_samples, _last_heartbeat);
 
-        timestamp_pools[_fpga_id].push_back(_timestamp);
-        timestamp_pools_original[_fpga_id].push_back(_timestamp_original);
-        daqh_list_pools[_fpga_id].push_back(_daqh_list);
-        tc_list_pools[_fpga_id].push_back(_tc_list);
-        tp_list_pools[_fpga_id].push_back(_tp_list);
-        val0_list_pools[_fpga_id].push_back(_val0_list);
-        val1_list_pools[_fpga_id].push_back(_val1_list);
-        val2_list_pools[_fpga_id].push_back(_val2_list);
-        crc32_list_pools[_fpga_id].push_back(_crc32_list);
-        last_heartbeat_pools[_fpga_id].push_back(_last_heartbeat);
+        timestamp_pools[_fpga_index].push_back(_timestamp);
+        timestamp_pools_original[_fpga_index].push_back(_timestamp_original);
+        daqh_list_pools[_fpga_index].push_back(_daqh_list);
+        tc_list_pools[_fpga_index].push_back(_tc_list);
+        tp_list_pools[_fpga_index].push_back(_tp_list);
+        val0_list_pools[_fpga_index].push_back(_val0_list);
+        val1_list_pools[_fpga_index].push_back(_val1_list);
+        val2_list_pools[_fpga_index].push_back(_val2_list);
+        crc32_list_pools[_fpga_index].push_back(_crc32_list);
+        last_heartbeat_pools[_fpga_index].push_back(_last_heartbeat);
 
         bool flag_pools_full = true;
         for (int i = 0; i < fpga_number; i++) {
@@ -321,7 +333,89 @@ int main(int argc, char **argv){
                 break;
             }
         }
-        if (flag_pools_full || flag_last_entry) {
+        bool flag_last_entry_valid = flag_last_entry;
+        if (flag_last_entry){
+            // check if there are at least 2 entries in each pool
+            for (int i = 0; i < fpga_number; i++) {
+                if (timestamp_pools[i].size() < 2) {
+                    flag_last_entry_valid = false;
+                    break;
+                }
+            }
+        }
+        if (!flag_pools_full && !flag_last_entry_valid) {
+            bool flag_clear_pools = false;
+            for (int i = 0; i < fpga_number; i++) {
+                if (timestamp_pools[i].size() > SWMA_window_max) {
+                    flag_clear_pools = true;
+                    break;
+                }
+            }
+            if (flag_clear_pools) {
+                for (int i = 0; i < fpga_number; i++) {
+                    if (script_verbose) {
+                        LOG(DEBUG) << "Clearing pool " << i;
+                    }
+                    for (int j = 0; j < timestamp_pools[i].size(); j++) {
+                        if (timestamp_pools_original[i][j] != nullptr) {
+                            delete[] timestamp_pools_original[i][j];
+                        }
+                    }
+                    for (int j = 0; j < daqh_list_pools[i].size(); j++) {
+                        if (daqh_list_pools[i][j] != nullptr) {
+                            delete[] daqh_list_pools[i][j];
+                        }
+                    }
+                    for (int j = 0; j < tc_list_pools[i].size(); j++) {
+                        if (tc_list_pools[i][j] != nullptr) {
+                            delete[] tc_list_pools[i][j];
+                        }
+                    }
+                    for (int j = 0; j < tp_list_pools[i].size(); j++) {
+                        if (tp_list_pools[i][j] != nullptr) {
+                            delete[] tp_list_pools[i][j];
+                        }
+                    }
+                    for (int j = 0; j < val0_list_pools[i].size(); j++) {
+                        if (val0_list_pools[i][j] != nullptr) {
+                            delete[] val0_list_pools[i][j];
+                        }
+                    }
+                    for (int j = 0; j < val1_list_pools[i].size(); j++) {
+                        if (val1_list_pools[i][j] != nullptr) {
+                            delete[] val1_list_pools[i][j];
+                        }
+                    }
+                    for (int j = 0; j < val2_list_pools[i].size(); j++) {
+                        if (val2_list_pools[i][j] != nullptr) {
+                            delete[] val2_list_pools[i][j];
+                        }
+                    }
+                    for (int j = 0; j < crc32_list_pools[i].size(); j++) {
+                        if (crc32_list_pools[i][j] != nullptr) {
+                            delete[] crc32_list_pools[i][j];
+                        }
+                    }
+                    for (int j = 0; j < last_heartbeat_pools[i].size(); j++) {
+                        if (last_heartbeat_pools[i][j] != nullptr) {
+                            delete[] last_heartbeat_pools[i][j];
+                        }
+                    }
+                    timestamp_pools[i].clear();
+                    timestamp_pools_original[i].clear();
+                    daqh_list_pools[i].clear();
+                    tc_list_pools[i].clear();
+                    tp_list_pools[i].clear();
+                    val0_list_pools[i].clear();
+                    val1_list_pools[i].clear();
+                    val2_list_pools[i].clear();
+                    crc32_list_pools[i].clear();
+                    last_heartbeat_pools[i].clear();
+                }
+            }
+            continue;
+        }
+        if (flag_pools_full || flag_last_entry_valid) {
             // Calculate the difference between the timestamps
             std::vector <Long64_t> timestamp_diffs[fpga_number];
             for (int i = 0; i < fpga_number; i++) {
@@ -334,98 +428,148 @@ int main(int argc, char **argv){
                     timestamp_diffs[i].push_back(Long64_t(timestamp_pools[i][j + 1] - timestamp_pools[i][j]));
                 }
                 // print the timestamp_diffs
-                // std::ostringstream oss;
-                // oss << "FPGA " << i << " ";
-                // for (int j = 0; j < _diff_size; j++) {
-                //     oss << timestamp_diffs[i][j] << " ";
-                // }
-                // LOG(INFO) << oss.str();
+                if (script_verbose) {
+                    std::ostringstream oss;
+                    oss << "FPGA " << i << " ";
+                    for (int j = 0; j < _diff_size; j++) {
+                        oss << timestamp_diffs[i][j] << " ";
+                    }
+                    LOG(INFO) << oss.str();
+                }
             }
 
             LCSResult _result = longestMatchingSequence(timestamp_diffs, fpga_number, SWMA_variance);
-            // cout << "Longest matching sequence: ";
-            // for (Long64_t val : _result.sequence) {
-            //     cout << val << " ";
-            // }
-            // cout << endl;
-            // cout << "Indices: " << endl;
-            // for (int j = 0; j < fpga_number; j++) {
-            //     cout << "FPGA " << j << ": ";
-            //     for (int index : _result.indices[j]) {
-            //         cout << index << " ";
-            //     }
-            //     cout << endl;
-            // }
-
-            auto _result_sequence_size = _result.sequence.size();
-            matched_length.push_back(_result_sequence_size);
-
-            // Assemble the matched events
-            for (int _matched_index = 0; _matched_index < _result_sequence_size; _matched_index++) {
-                for (int i = 0; i < fpga_number; i++) {
-                    auto _index          = _result.indices[i][_matched_index];
-                    auto _timestamp      = timestamp_pools_original[i][_index];
-                    auto _daqh_list      = daqh_list_pools[i][_index];
-                    auto _tc_list        = tc_list_pools[i][_index];
-                    auto _tp_list        = tp_list_pools[i][_index];
-                    auto _val0_list      = val0_list_pools[i][_index];
-                    auto _val1_list      = val1_list_pools[i][_index];
-                    auto _val2_list      = val2_list_pools[i][_index];
-                    auto _crc32_list     = crc32_list_pools[i][_index];
-                    auto _last_heartbeat = last_heartbeat_pools[i][_index];
-
-                    auto *branch_timestamps     = branch_timestamps_list[i];
-                    auto *branch_daqh_list      = branch_daqh_list_list[i];
-                    auto *branch_tc_list        = branch_tc_list_list[i];
-                    auto *branch_tp_list        = branch_tp_list_list[i];
-                    auto *branch_val0_list      = branch_val0_list_list[i];
-                    auto *branch_val1_list      = branch_val1_list_list[i];
-                    auto *branch_val2_list      = branch_val2_list_list[i];
-                    auto *branch_crc32_list     = branch_crc32_list_list[i];
-                    auto *branch_last_heartbeat = branch_last_heartbeat_list[i];
-
-                    std::copy(_timestamp, _timestamp + machine_gun_samples, branch_timestamps);
-                    std::copy(_daqh_list, _daqh_list + 4 * machine_gun_samples, branch_daqh_list);
-                    std::copy(_tc_list, _tc_list + FPGA_CHANNEL_NUMBER * machine_gun_samples, branch_tc_list);
-                    std::copy(_tp_list, _tp_list + FPGA_CHANNEL_NUMBER * machine_gun_samples, branch_tp_list);
-                    std::copy(_val0_list, _val0_list + FPGA_CHANNEL_NUMBER * machine_gun_samples, branch_val0_list);
-                    std::copy(_val1_list, _val1_list + FPGA_CHANNEL_NUMBER * machine_gun_samples, branch_val1_list);
-                    std::copy(_val2_list, _val2_list + FPGA_CHANNEL_NUMBER * machine_gun_samples, branch_val2_list);
-                    std::copy(_crc32_list, _crc32_list + 4 * machine_gun_samples, branch_crc32_list);
-                    std::copy(_last_heartbeat, _last_heartbeat + machine_gun_samples, branch_last_heartbeat);
+            if (script_verbose) {
+                cout << "Longest matching sequence: ";
+                for (Long64_t val : _result.sequence) {
+                    cout << val << " ";
                 }
-                output_tree->Fill();
+                cout << endl;
+                cout << "Indices: " << endl;
+                for (int j = 0; j < fpga_number; j++) {
+                    cout << "FPGA " << j << ": ";
+                    for (int index : _result.indices[j]) {
+                        cout << index << " ";
+                    }
+                    cout << endl;
+                }
             }
-            
-            // Erase the part til the last matched indices
+            auto _result_sequence_size = _result.sequence.size();
+    
+            if (_result_sequence_size > 0) {
+                matched_length.push_back(_result_sequence_size);
+                for (int _matched_index = 0; _matched_index < _result_sequence_size; _matched_index++) {
+                    for (int i = 0; i < fpga_number; i++) {
+                        auto _index          = _result.indices[i][_matched_index];
+                        auto _timestamp      = timestamp_pools_original[i][_index];
+                        auto _daqh_list      = daqh_list_pools[i][_index];
+                        auto _tc_list        = tc_list_pools[i][_index];
+                        auto _tp_list        = tp_list_pools[i][_index];
+                        auto _val0_list      = val0_list_pools[i][_index];
+                        auto _val1_list      = val1_list_pools[i][_index];
+                        auto _val2_list      = val2_list_pools[i][_index];
+                        auto _crc32_list     = crc32_list_pools[i][_index];
+                        auto _last_heartbeat = last_heartbeat_pools[i][_index];
+
+                        auto *branch_timestamps     = branch_timestamps_list[i];
+                        auto *branch_daqh_list      = branch_daqh_list_list[i];
+                        auto *branch_tc_list        = branch_tc_list_list[i];
+                        auto *branch_tp_list        = branch_tp_list_list[i];
+                        auto *branch_val0_list      = branch_val0_list_list[i];
+                        auto *branch_val1_list      = branch_val1_list_list[i];
+                        auto *branch_val2_list      = branch_val2_list_list[i];
+                        auto *branch_crc32_list     = branch_crc32_list_list[i];
+                        auto *branch_last_heartbeat = branch_last_heartbeat_list[i];
+
+                        std::copy(_timestamp, _timestamp + machine_gun_samples, branch_timestamps);
+                        std::copy(_daqh_list, _daqh_list + 4 * machine_gun_samples, branch_daqh_list);
+                        std::copy(_tc_list, _tc_list + FPGA_CHANNEL_NUMBER * machine_gun_samples, branch_tc_list);
+                        std::copy(_tp_list, _tp_list + FPGA_CHANNEL_NUMBER * machine_gun_samples, branch_tp_list);
+                        std::copy(_val0_list, _val0_list + FPGA_CHANNEL_NUMBER * machine_gun_samples, branch_val0_list);
+                        std::copy(_val1_list, _val1_list + FPGA_CHANNEL_NUMBER * machine_gun_samples, branch_val1_list);
+                        std::copy(_val2_list, _val2_list + FPGA_CHANNEL_NUMBER * machine_gun_samples, branch_val2_list);
+                        std::copy(_crc32_list, _crc32_list + 4 * machine_gun_samples, branch_crc32_list);
+                        std::copy(_last_heartbeat, _last_heartbeat + machine_gun_samples, branch_last_heartbeat);
+                    }
+                    output_tree->Fill();
+                }
+            }
+            // Erase the part til the last matched indices (fix to delete memory before erase)
             for (int i = 0; i < fpga_number; i++) {
-                timestamp_pools[i].erase(timestamp_pools[i].begin(), timestamp_pools[i].begin() + _result.indices[i].back() + 1);
-                daqh_list_pools[i].erase(daqh_list_pools[i].begin(), daqh_list_pools[i].begin() + _result.indices[i].back() + 1);
-                tc_list_pools[i].erase(tc_list_pools[i].begin(), tc_list_pools[i].begin() + _result.indices[i].back() + 1);
-                tp_list_pools[i].erase(tp_list_pools[i].begin(), tp_list_pools[i].begin() + _result.indices[i].back() + 1);
-                val0_list_pools[i].erase(val0_list_pools[i].begin(), val0_list_pools[i].begin() + _result.indices[i].back() + 1);
-                val1_list_pools[i].erase(val1_list_pools[i].begin(), val1_list_pools[i].begin() + _result.indices[i].back() + 1);
-                val2_list_pools[i].erase(val2_list_pools[i].begin(), val2_list_pools[i].begin() + _result.indices[i].back() + 1);
-                crc32_list_pools[i].erase(crc32_list_pools[i].begin(), crc32_list_pools[i].begin() + _result.indices[i].back() + 1);
-                last_heartbeat_pools[i].erase(last_heartbeat_pools[i].begin(), last_heartbeat_pools[i].begin() + _result.indices[i].back() + 1);
+                if (_result.indices[i].size() == 0) {
+                    continue;
+                }
+                int eraseCount = _result.indices[i].back() + 1; // number of elements to remove
+                // Free memory for each pointer being removed.
+                for (int j = 0; j < eraseCount; j++) {
+                    if (j < timestamp_pools_original[i].size()) {
+                        delete[] timestamp_pools_original[i][j];
+                    }
+                    if (j < daqh_list_pools[i].size()) {
+                        delete[] daqh_list_pools[i][j];
+                    }
+                    if (j < tc_list_pools[i].size()) {
+                        delete[] tc_list_pools[i][j];
+                    }
+                    if (j < tp_list_pools[i].size()) {
+                        delete[] tp_list_pools[i][j];
+                    }
+                    if (j < val0_list_pools[i].size()) {
+                        delete[] val0_list_pools[i][j];
+                    }
+                    if (j < val1_list_pools[i].size()) {
+                        delete[] val1_list_pools[i][j];
+                    }
+                    if (j < val2_list_pools[i].size()) {
+                        delete[] val2_list_pools[i][j];
+                    }
+                    if (j < crc32_list_pools[i].size()) {
+                        delete[] crc32_list_pools[i][j];
+                    }
+                    if (j < last_heartbeat_pools[i].size()) {
+                        delete[] last_heartbeat_pools[i][j];
+                    }
+                }
+                // Erase the pointers from the vectors now that the memory is freed.
+                timestamp_pools[i].erase(timestamp_pools[i].begin(), timestamp_pools[i].begin() + eraseCount);
+                timestamp_pools_original[i].erase(timestamp_pools_original[i].begin(), timestamp_pools_original[i].begin() + eraseCount);
+                daqh_list_pools[i].erase(daqh_list_pools[i].begin(), daqh_list_pools[i].begin() + eraseCount);
+                tc_list_pools[i].erase(tc_list_pools[i].begin(), tc_list_pools[i].begin() + eraseCount);
+                tp_list_pools[i].erase(tp_list_pools[i].begin(), tp_list_pools[i].begin() + eraseCount);
+                val0_list_pools[i].erase(val0_list_pools[i].begin(), val0_list_pools[i].begin() + eraseCount);
+                val1_list_pools[i].erase(val1_list_pools[i].begin(), val1_list_pools[i].begin() + eraseCount);
+                val2_list_pools[i].erase(val2_list_pools[i].begin(), val2_list_pools[i].begin() + eraseCount);
+                crc32_list_pools[i].erase(crc32_list_pools[i].begin(), crc32_list_pools[i].begin() + eraseCount);
+                last_heartbeat_pools[i].erase(last_heartbeat_pools[i].begin(), last_heartbeat_pools[i].begin() + eraseCount);
             }
         }
     }
 
     // print the matched_length
-    // std::ostringstream oss;
-    // oss << "Matched length: ";
-    // for (int i = 0; i < matched_length.size(); i++) {
-    //     oss << matched_length[i] << " ";
-    // }
-    // LOG(INFO) << oss.str();
+    if (script_verbose) {
+        std::ostringstream oss;
+        oss << "Matched length: ";
+        for (int i = 0; i < matched_length.size(); i++) {
+            oss << matched_length[i] << " ";
+        }
+        LOG(INFO) << oss.str();
+    }
 
     Long64_t total_matched_events = 0;
     for (int i = 0; i < matched_length.size(); i++) {
         total_matched_events += matched_length[i] + 1;
     }
 
-    LOG(INFO) << "Total matched events: " << total_matched_events << " (" << (float) total_matched_events / entry_max * 100 * fpga_number << "%)";
+    if (entry_max == 0) {
+        LOG(ERROR) << "No events in the input file!";
+    } else {
+        if (fpga_number == 0) {
+            LOG(ERROR) << "No legal FPGA ID in the input file!";
+        }
+        else {
+            LOG(INFO) << "Total matched events: " << total_matched_events << " (" << (float) total_matched_events / entry_max * 100 * fpga_number << "%)";
+        }
+    }
 
     // Read the meta data from the input file
     TNamed *input_script_rootifier_name_tnamed = (TNamed*) input_root->Get("Rootifier_script_name");
@@ -547,6 +691,48 @@ int main(int argc, char **argv){
     // -- Write the running info
     TNamed("EventMatch_total_matched_events", std::to_string(total_matched_events).c_str()).Write();
     
+    for (int i = 0; i < fpga_number; i++) {
+        delete[] branch_timestamps_list[i];
+        delete[] branch_daqh_list_list[i];
+        delete[] branch_tc_list_list[i];
+        delete[] branch_tp_list_list[i];
+        delete[] branch_val0_list_list[i];
+        delete[] branch_val1_list_list[i];
+        delete[] branch_val2_list_list[i];
+        delete[] branch_crc32_list_list[i];
+        delete[] branch_last_heartbeat_list[i];
+    }
+
+    for (int i = 0; i < fpga_number; i++) {
+        for (auto ptr : timestamp_pools_original[i]) {
+            delete[] ptr;
+        }
+        for (auto ptr : daqh_list_pools[i]) {
+            delete[] ptr;
+        }
+        for (auto ptr : tc_list_pools[i]) {
+            delete[] ptr;
+        }
+        for (auto ptr : tp_list_pools[i]) {
+            delete[] ptr;
+        }
+        for (auto ptr : val0_list_pools[i]) {
+            delete[] ptr;
+        }
+        for (auto ptr : val1_list_pools[i]) {
+            delete[] ptr;
+        }
+        for (auto ptr : val2_list_pools[i]) {
+            delete[] ptr;
+        }
+        for (auto ptr : crc32_list_pools[i]) {
+            delete[] ptr;
+        }
+        for (auto ptr : last_heartbeat_pools[i]) {
+            delete[] ptr;
+        }
+    }
+
     output_root->Close();
     return 0;
 }

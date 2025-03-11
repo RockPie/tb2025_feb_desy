@@ -25,7 +25,7 @@ include(FetchContent)
 FetchContent_Declare(
     argparse
     GIT_REPOSITORY https://github.com/p-ranav/argparse.git
-    GIT_TAG        master  # Use a specific tag for more stability
+    GIT_TAG        master  # Consider specifying a stable release tag
 )
 FetchContent_MakeAvailable(argparse)
 
@@ -40,18 +40,42 @@ FetchContent_MakeAvailable(easyloggingpp)
 # Include easylogging++ headers
 include_directories(${easyloggingpp_SOURCE_DIR}/src)
 
-# Compile `easylogging++.cc` as a part of the build
+# Compile easylogging++.cc as a static library
 add_library(easyloggingpp STATIC ${easyloggingpp_SOURCE_DIR}/src/easylogging++.cc)
 
-# Add executables from all .cxx files in scripts
+# Add your common library (NEW)
+add_library(H2GCROC_Common STATIC
+    src/H2GCROC_Common.cxx
+)
+
+target_include_directories(H2GCROC_Common PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${easyloggingpp_SOURCE_DIR}/src
+    ${ROOT_INCLUDE_DIRS}
+)
+
+target_link_libraries(H2GCROC_Common PUBLIC
+    easyloggingpp
+    argparse
+    ${ROOT_LIBRARIES}
+)
+
+# Find all script executables
 file(GLOB scripts ${CMAKE_CURRENT_SOURCE_DIR}/scripts/*.cxx)
 foreach(script ${scripts})
     get_filename_component(script_name ${script} NAME_WE)
     add_executable(${script_name} ${script})
 
-    # Ensure easylogging++ headers are available
-    target_include_directories(${script_name} PUBLIC ${easyloggingpp_SOURCE_DIR}/src)
+    target_include_directories(${script_name} PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${easyloggingpp_SOURCE_DIR}/src
+    )
 
-    # Link easylogging++ (compiled) and argparse
-    target_link_libraries(${script_name} easyloggingpp argparse ${ROOT_LIBRARIES})
+    # Link against your common code (NEW)
+    target_link_libraries(${script_name}
+        H2GCROC_Common
+        easyloggingpp
+        argparse
+        ${ROOT_LIBRARIES}
+    )
 endforeach(script)

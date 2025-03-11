@@ -152,6 +152,14 @@ int main(int argc, char **argv){
 
     std::vector <UShort_t> fpga_id_pool;
     std::vector <ULong64_t> timestamp_pool;
+    std::vector <UInt_t*> daqh_list_pool;
+    std::vector <Bool_t*> tc_list_pool;
+    std::vector <Bool_t*> tp_list_pool;
+    std::vector <UInt_t*> val0_list_pool;
+    std::vector <UInt_t*> val1_list_pool;
+    std::vector <UInt_t*> val2_list_pool;
+    std::vector <UInt_t*> crc32_list_pool;
+    std::vector <UInt_t> last_heartbeat_pool;
     std::vector <bool> entry_matched;
     fpga_id_pool.reserve(SWMA_window_size);
     timestamp_pool.reserve(SWMA_window_size);
@@ -234,6 +242,10 @@ int main(int argc, char **argv){
 
     // * --- Fill output file -----------------------------------------------------------
     // * --------------------------------------------------------------------------------
+    // clear the pools
+    fpga_id_pool.clear();
+    timestamp_pool.clear();
+    entry_matched.clear();
     Long64_t good_machine_gun_events = 0;
     Long64_t bad_machine_gun_events = 0;
     bool flag_last_entry = false;
@@ -245,9 +257,41 @@ int main(int argc, char **argv){
         if (fpga_id_pool.size() < SWMA_window_size || flag_last_entry) {
             fpga_id_pool.push_back(input_fpga_id);
             timestamp_pool.push_back(input_timestamp);
+            UInt_t *daqh_list = new UInt_t[4];
+            Bool_t *tc_list = new Bool_t[FPGA_CHANNEL_NUMBER];
+            Bool_t *tp_list = new Bool_t[FPGA_CHANNEL_NUMBER];
+            UInt_t *val0_list = new UInt_t[FPGA_CHANNEL_NUMBER];
+            UInt_t *val1_list = new UInt_t[FPGA_CHANNEL_NUMBER];
+            UInt_t *val2_list = new UInt_t[FPGA_CHANNEL_NUMBER];
+            UInt_t *crc32_list = new UInt_t[4];
+
+            for (int _daqh_index = 0; _daqh_index < 4; _daqh_index++) {
+                daqh_list[_daqh_index] = input_daqh_list[_daqh_index];
+                crc32_list[_daqh_index] = input_crc32_list[_daqh_index];
+            }
+            for (int _channel_index = 0; _channel_index < FPGA_CHANNEL_NUMBER; _channel_index++) {
+                tc_list[_channel_index] = input_tc_list[_channel_index];
+                tp_list[_channel_index] = input_tp_list[_channel_index];
+                val0_list[_channel_index] = input_val0_list[_channel_index];
+                val1_list[_channel_index] = input_val1_list[_channel_index];
+                val2_list[_channel_index] = input_val2_list[_channel_index];
+            }
+
+            // LOG(DEBUG) << "Entry " << _entry << " FPGA ID: " << input_fpga_id << " Timestamp: " << input_timestamp;
+
+            daqh_list_pool.push_back(daqh_list);
+            tc_list_pool.push_back(tc_list);
+            tp_list_pool.push_back(tp_list);
+            val0_list_pool.push_back(val0_list);
+            val1_list_pool.push_back(val1_list);
+            val2_list_pool.push_back(val2_list);
+            crc32_list_pool.push_back(crc32_list);
+            last_heartbeat_pool.push_back(input_last_heartbeat);
+
             entry_matched.push_back(false);
         }
         if (fpga_id_pool.size() >= SWMA_window_size || flag_last_entry) {
+            // LOG(DEBUG) << "Processing window " << _entry;
             int _pool_index_max = SWMA_core_size;
             if (flag_last_entry) {
                 _pool_index_max = fpga_id_pool.size();
@@ -282,19 +326,20 @@ int main(int argc, char **argv){
                     for (int _matched_index_index = 0; _matched_index_index < _matched_index.size(); _matched_index_index++) {
                         branch_timestamps[_matched_index_index] = timestamp_pool[_matched_index[_matched_index_index]];
                         for (int _daqh_index = 0; _daqh_index < 4; _daqh_index++) {
-                            branch_daqh_list[_matched_index_index * 4 + _daqh_index] = input_daqh_list[_daqh_index];
+                            branch_daqh_list[_matched_index_index * 4 + _daqh_index] = daqh_list_pool[_matched_index[_matched_index_index]][_daqh_index];
+                            branch_crc32_list[_matched_index_index * 4 + _daqh_index] = crc32_list_pool[_matched_index[_matched_index_index]][_daqh_index];
                         }
                         for (int _channel_index = 0; _channel_index < FPGA_CHANNEL_NUMBER; _channel_index++) {
-                            branch_tc_list[_matched_index_index * FPGA_CHANNEL_NUMBER + _channel_index] = input_tc_list[_channel_index];
-                            branch_tp_list[_matched_index_index * FPGA_CHANNEL_NUMBER + _channel_index] = input_tp_list[_channel_index];
-                            branch_val0_list[_matched_index_index * FPGA_CHANNEL_NUMBER + _channel_index] = input_val0_list[_channel_index];
-                            branch_val1_list[_matched_index_index * FPGA_CHANNEL_NUMBER + _channel_index] = input_val1_list[_channel_index];
-                            branch_val2_list[_matched_index_index * FPGA_CHANNEL_NUMBER + _channel_index] = input_val2_list[_channel_index];
+                            // if (_channel_index == 10) {
+                            //     LOG(DEBUG) << "Channel 10: " << input_val0_list[_channel_index];
+                            // }
+                            branch_tc_list[_matched_index_index * FPGA_CHANNEL_NUMBER + _channel_index] = tc_list_pool[_matched_index[_matched_index_index]][_channel_index];
+                            branch_tp_list[_matched_index_index * FPGA_CHANNEL_NUMBER + _channel_index] = tp_list_pool[_matched_index[_matched_index_index]][_channel_index];
+                            branch_val0_list[_matched_index_index * FPGA_CHANNEL_NUMBER + _channel_index] = val0_list_pool[_matched_index[_matched_index_index]][_channel_index];
+                            branch_val1_list[_matched_index_index * FPGA_CHANNEL_NUMBER + _channel_index] = val1_list_pool[_matched_index[_matched_index_index]][_channel_index];
+                            branch_val2_list[_matched_index_index * FPGA_CHANNEL_NUMBER + _channel_index] = val2_list_pool[_matched_index[_matched_index_index]][_channel_index];
                         }
-                        for (int _crc32_index = 0; _crc32_index < 4; _crc32_index++) {
-                            branch_crc32_list[_matched_index_index * 4 + _crc32_index] = input_crc32_list[_crc32_index];
-                        }
-                        branch_last_heartbeat[_matched_index_index] = input_last_heartbeat;
+                        branch_last_heartbeat[_matched_index_index] = last_heartbeat_pool[_matched_index[_matched_index_index]];
                     }
                     output_tree->Fill();
                 } else {
@@ -304,6 +349,23 @@ int main(int argc, char **argv){
             // delete the core size
             fpga_id_pool.erase(fpga_id_pool.begin(), fpga_id_pool.begin() + SWMA_core_size);
             timestamp_pool.erase(timestamp_pool.begin(), timestamp_pool.begin() + SWMA_core_size);
+            for (int _pool_index = 0; _pool_index < SWMA_core_size; _pool_index++) {
+                delete daqh_list_pool[_pool_index];
+                delete tc_list_pool[_pool_index];
+                delete tp_list_pool[_pool_index];
+                delete val0_list_pool[_pool_index];
+                delete val1_list_pool[_pool_index];
+                delete val2_list_pool[_pool_index];
+                delete crc32_list_pool[_pool_index];
+            }
+            daqh_list_pool.erase(daqh_list_pool.begin(), daqh_list_pool.begin() + SWMA_core_size);
+            tc_list_pool.erase(tc_list_pool.begin(), tc_list_pool.begin() + SWMA_core_size);
+            tp_list_pool.erase(tp_list_pool.begin(), tp_list_pool.begin() + SWMA_core_size);
+            val0_list_pool.erase(val0_list_pool.begin(), val0_list_pool.begin() + SWMA_core_size);
+            val1_list_pool.erase(val1_list_pool.begin(), val1_list_pool.begin() + SWMA_core_size);
+            val2_list_pool.erase(val2_list_pool.begin(), val2_list_pool.begin() + SWMA_core_size);
+            crc32_list_pool.erase(crc32_list_pool.begin(), crc32_list_pool.begin() + SWMA_core_size);
+            last_heartbeat_pool.erase(last_heartbeat_pool.begin(), last_heartbeat_pool.begin() + SWMA_core_size);
             entry_matched.erase(entry_matched.begin(), entry_matched.begin() + SWMA_core_size);
         }
     }

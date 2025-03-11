@@ -481,15 +481,25 @@ int main(int argc, char **argv){
                         auto *branch_crc32_list     = branch_crc32_list_list[i];
                         auto *branch_last_heartbeat = branch_last_heartbeat_list[i];
 
-                        std::copy(_timestamp, _timestamp + machine_gun_samples, branch_timestamps);
-                        std::copy(_daqh_list, _daqh_list + 4 * machine_gun_samples, branch_daqh_list);
-                        std::copy(_tc_list, _tc_list + FPGA_CHANNEL_NUMBER * machine_gun_samples, branch_tc_list);
-                        std::copy(_tp_list, _tp_list + FPGA_CHANNEL_NUMBER * machine_gun_samples, branch_tp_list);
-                        std::copy(_val0_list, _val0_list + FPGA_CHANNEL_NUMBER * machine_gun_samples, branch_val0_list);
-                        std::copy(_val1_list, _val1_list + FPGA_CHANNEL_NUMBER * machine_gun_samples, branch_val1_list);
-                        std::copy(_val2_list, _val2_list + FPGA_CHANNEL_NUMBER * machine_gun_samples, branch_val2_list);
-                        std::copy(_crc32_list, _crc32_list + 4 * machine_gun_samples, branch_crc32_list);
-                        std::copy(_last_heartbeat, _last_heartbeat + machine_gun_samples, branch_last_heartbeat);
+                        // Copy each sample individually
+                        for (int j = 0; j < machine_gun_samples; j++) {
+                            branch_timestamps[j] = _timestamp[j];
+                            for (int k = 0; k < 4; k++) {
+                                branch_daqh_list[j * 4 + k] = _daqh_list[j * 4 + k];
+                                branch_crc32_list[j * 4 + k] = _crc32_list[j * 4 + k];
+                            }
+                            for (int k = 0; k < FPGA_CHANNEL_NUMBER; k++) {
+                                // if (i == 1 && k == 10) {
+                                //     LOG(DEBUG) << "FPGA " << i << " " << j << " " << k << " " << _val0_list[j * FPGA_CHANNEL_NUMBER + k];
+                                // }
+                                branch_tc_list[j * FPGA_CHANNEL_NUMBER + k] = _tc_list[j * FPGA_CHANNEL_NUMBER + k];
+                                branch_tp_list[j * FPGA_CHANNEL_NUMBER + k] = _tp_list[j * FPGA_CHANNEL_NUMBER + k];
+                                branch_val0_list[j * FPGA_CHANNEL_NUMBER + k] = _val0_list[j * FPGA_CHANNEL_NUMBER + k];
+                                branch_val1_list[j * FPGA_CHANNEL_NUMBER + k] = _val1_list[j * FPGA_CHANNEL_NUMBER + k];
+                                branch_val2_list[j * FPGA_CHANNEL_NUMBER + k] = _val2_list[j * FPGA_CHANNEL_NUMBER + k];
+                            }
+                            branch_last_heartbeat[j] = _last_heartbeat[j];
+                        }
                     }
                     output_tree->Fill();
                 }

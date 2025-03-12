@@ -60,7 +60,7 @@ rule EventMatch:
         {input[0]} -f {input[1]} -o {output} &> {log}
         """
 
-rule all:
+rule rootify_all:
     input:
         expand(DUMP_DIR + "/102_EventMatch/Run{run_id}_matched.root", run_id=run_ids)
     output:

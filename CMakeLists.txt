@@ -37,6 +37,14 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(easyloggingpp)
 
+# Fetch nlohmann/json
+FetchContent_Declare(
+    json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG        v3.11.3  # Latest stable release
+)
+FetchContent_MakeAvailable(json)
+
 # Include easylogging++ headers
 include_directories(${easyloggingpp_SOURCE_DIR}/src)
 
@@ -52,11 +60,13 @@ target_include_directories(H2GCROC_Common PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${easyloggingpp_SOURCE_DIR}/src
     ${ROOT_INCLUDE_DIRS}
+    ${json_SOURCE_DIR}/include  # Include JSON headers
 )
 
 target_link_libraries(H2GCROC_Common PUBLIC
     easyloggingpp
     argparse
+    nlohmann_json::nlohmann_json  # Link JSON library
     ${ROOT_LIBRARIES}
 )
 
@@ -69,6 +79,7 @@ foreach(script ${scripts})
     target_include_directories(${script_name} PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${easyloggingpp_SOURCE_DIR}/src
+        ${json_SOURCE_DIR}/include
     )
 
     # Link against your common code (NEW)
@@ -76,6 +87,7 @@ foreach(script ${scripts})
         H2GCROC_Common
         easyloggingpp
         argparse
+        nlohmann_json::nlohmann_json
         ${ROOT_LIBRARIES}
     )
 endforeach(script)

@@ -17,6 +17,7 @@
 #include "TLatex.h"
 #include "TFile.h"
 #include "TTree.h"
+#include "TLegend.h"
 #include "TApplication.h"
 #include "TGaxis.h"
 #include "easylogging++.h"
@@ -73,6 +74,36 @@ inline double decode_toa_value_ns(UInt_t val2) {
     UInt_t part2 = (val2 >> 8) & 0x1F;
 
     return part0 * scale0 + part1 * scale1 + part2 * scale2;
+
+    // if (part2 == 3) {
+    //     return part0 * scale0 + part1 * scale1 + part2 * scale2 - 25.0;
+    // } else {
+    //     return part0 * scale0 + part1 * scale1 + part2 * scale2;
+    // }
 }
+
+class GlobalChannelPainter {
+public:
+    GlobalChannelPainter(const std::string& mapping_file);
+    ~GlobalChannelPainter();
+
+    TCanvas* get_canvas() { return painter_canvas; }
+    void draw_global_channel_hists2D(std::vector <TH2D*> hists, std::unordered_map <int, int> hists_channel_map, const std::string& hist_name, const std::string& hist_title);
+    void draw_global_channel_hists1D(std::vector <TH1D*> hists, std::unordered_map <int, int> hists_channel_map, const std::string& hist_name, const std::string& hist_title);
+    void draw_global_channel_hists1D_group(std::vector <std::vector <TH1D*>> hists_list, std::unordered_map <int, int> hists_channel_map, const std::string& hist_name, const std::string& hist_title, std::vector <EColor> colors, std::vector <std::string> legend_labels);
+private:
+    void clear_canvas();
+
+private:
+    TCanvas *painter_canvas;
+    json mapping_json;
+
+    std::vector <int> module_fpga_list;
+    std::vector <int> module_asic_list;
+    std::vector <int> module_connector_list;
+    std::vector <std::vector <int>> connector_list_list;
+
+    std::vector <TCanvas*> sub_canvas_list;
+};
 
 #endif // COMMON_HPP

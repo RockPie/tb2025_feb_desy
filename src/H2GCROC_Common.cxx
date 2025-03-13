@@ -230,3 +230,207 @@ int get_total_fpga_channel(int fpga_channel){
     }
     return -1;
 }
+
+GlobalChannelPainter::GlobalChannelPainter(const std::string& mapping_file) {
+    std::ifstream ifs(mapping_file);
+    if (!ifs.is_open()) {
+        LOG(ERROR) << "Failed to open mapping file " << mapping_file;
+        exit(1);
+    }
+    if (this->mapping_json.empty()) {
+        ifs >> this->mapping_json;
+    } else {
+        LOG(WARNING) << "Mapping file " << mapping_file << " overwritten!";
+        mapping_json.clear();
+        ifs >> this->mapping_json;
+    }
+    ifs.close();
+
+    this->module_fpga_list = this->mapping_json["module_fpga"].get<std::vector<int>>();
+    this->module_asic_list = this->mapping_json["module_asic"].get<std::vector<int>>();
+    this->module_connector_list = this->mapping_json["module_connector"].get<std::vector<int>>();
+    for (int _connector_index = 0; _connector_index < 4; _connector_index++) {
+        this->connector_list_list.push_back(this->mapping_json["connector_" + std::to_string(_connector_index)].get<std::vector<int>>());
+    }
+
+    // check if the module fpga is based on 208
+    for (int _module_index = 0; _module_index < 25; _module_index++) {
+        if (this->module_fpga_list[_module_index] >= 208) {
+            this->module_fpga_list[_module_index] -= 208;
+        }
+    }
+    // check if the vector length is the same for all connectors
+    if (this->connector_list_list.size() != 4) {
+        LOG(ERROR) << "Connector vector length mismatch!";
+        exit(1);
+    }
+    for (int _connector_index = 0; _connector_index < 4; _connector_index++) {
+        if (this->connector_list_list[_connector_index].size() != 16) {
+            LOG(ERROR) << "Connector vector length mismatch!";
+            exit(1);
+        }
+    }
+    // check if the vector length is the same for all asics
+    if ((this->module_asic_list.size() != this->module_fpga_list.size()) || (this->module_asic_list.size() != this->module_connector_list.size())) {
+        LOG(ERROR) << "ASIC vector length mismatch!";
+        exit(1);
+    }
+}
+
+GlobalChannelPainter::~GlobalChannelPainter() {
+    this->clear_canvas();
+    if (this->painter_canvas != nullptr) {
+        delete this->painter_canvas;
+    }
+}
+
+void GlobalChannelPainter::clear_canvas() {
+    if (!this->sub_canvas_list.empty()) {
+        for (auto& sub_canvas : this->sub_canvas_list) {
+            if (sub_canvas != nullptr) {
+                delete sub_canvas;
+                sub_canvas = nullptr;
+            }
+        }
+        this->sub_canvas_list.clear();
+    }
+}
+
+void GlobalChannelPainter::draw_global_channel_hists2D(std::vector <TH2D*> hists, std::unordered_map <int, int> hists_channel_map, const std::string& hist_name, const std::string& hist_title){
+    this->clear_canvas();
+    this->painter_canvas = new TCanvas(hist_name.c_str(), hist_title.c_str(), 800, 600);
+    this->painter_canvas->Divide(5, 5, 0.0, 0.0);
+    for (int _sub_canvas_index = 1; _sub_canvas_index <= 25; _sub_canvas_index++) {
+        auto _pad = (TPad*) this->painter_canvas->GetPad(_sub_canvas_index);
+        _pad->SetLeftMargin(0);
+        _pad->SetRightMargin(0);
+        _pad->SetTopMargin(0);
+        _pad->SetBottomMargin(0);
+
+        auto _pad_module_fpga = this->module_fpga_list[_sub_canvas_index - 1];
+        auto _pad_module_asic = this->module_asic_list[_sub_canvas_index - 1];
+        auto _pad_module_connector = this->module_connector_list[_sub_canvas_index - 1];
+        auto _pad_connector = this->connector_list_list[_pad_module_connector-1];
+
+        auto _pad_canvas = new TCanvas(("sub_canvas_" + std::to_string(_sub_canvas_index)).c_str(), ("Sub Canvas " + std::to_string(_sub_canvas_index)).c_str(), 800, 600);
+        this->sub_canvas_list.push_back(_pad_canvas);
+        _pad_canvas->Divide(4, 4, 0.0, 0.0);
+        for (int _sub_sub_canvas_index = 1; _sub_sub_canvas_index <= 16; _sub_sub_canvas_index++) {
+            auto _sub_pad = (TPad*) _pad_canvas->GetPad(_sub_sub_canvas_index);
+            _sub_pad->SetLeftMargin(0);
+            _sub_pad->SetRightMargin(0);
+            _sub_pad->SetTopMargin(0);
+            _sub_pad->SetBottomMargin(0);
+
+            auto _unified_channel = _pad_connector[_sub_sub_canvas_index - 1] + _pad_module_fpga * FPGA_CHANNEL_NUMBER_VALID + _pad_module_asic * int(FPGA_CHANNEL_NUMBER_VALID / 2);
+            auto _channel_index = hists_channel_map[_unified_channel];
+            auto _hist = hists[_channel_index];
+
+            if (_hist->GetEntries() == 0) {
+                _hist->SetBinContent(1, 0.0);
+            }
+            _sub_pad->cd();
+            _hist->Draw("colz");
+        }
+        _pad->cd();
+        _pad_canvas->DrawClonePad();
+    }
+}
+
+void GlobalChannelPainter::draw_global_channel_hists1D(std::vector <TH1D*> hists, std::unordered_map <int, int> hists_channel_map, const std::string& hist_name, const std::string& hist_title) {
+    this->clear_canvas();
+    this->painter_canvas = new TCanvas(hist_name.c_str(), hist_title.c_str(), 800, 600);
+    this->painter_canvas->Divide(5, 5, 0.0, 0.0);
+    for (int _sub_canvas_index = 1; _sub_canvas_index <= 25; _sub_canvas_index++) {
+        auto _pad = (TPad*) this->painter_canvas->GetPad(_sub_canvas_index);
+        _pad->SetLeftMargin(0);
+        _pad->SetRightMargin(0);
+        _pad->SetTopMargin(0);
+        _pad->SetBottomMargin(0);
+
+        auto _pad_module_fpga = this->module_fpga_list[_sub_canvas_index - 1];
+        auto _pad_module_asic = this->module_asic_list[_sub_canvas_index - 1];
+        auto _pad_module_connector = this->module_connector_list[_sub_canvas_index - 1];
+        auto _pad_connector = this->connector_list_list[_pad_module_connector-1];
+
+        auto _pad_canvas = new TCanvas(("sub_canvas_" + std::to_string(_sub_canvas_index)).c_str(), ("Sub Canvas " + std::to_string(_sub_canvas_index)).c_str(), 800, 600);
+        this->sub_canvas_list.push_back(_pad_canvas);
+        _pad_canvas->Divide(4, 4, 0.0, 0.0);
+        for (int _sub_sub_canvas_index = 1; _sub_sub_canvas_index <= 16; _sub_sub_canvas_index++) {
+            auto _sub_pad = (TPad*) _pad_canvas->GetPad(_sub_sub_canvas_index);
+            _sub_pad->SetLeftMargin(0);
+            _sub_pad->SetRightMargin(0);
+            _sub_pad->SetTopMargin(0);
+            _sub_pad->SetBottomMargin(0);
+
+            auto _unified_channel = _pad_connector[_sub_sub_canvas_index - 1] + _pad_module_fpga * FPGA_CHANNEL_NUMBER_VALID + _pad_module_asic * int(FPGA_CHANNEL_NUMBER_VALID / 2);
+            auto _channel_index = hists_channel_map[_unified_channel];
+            auto _hist = hists[_channel_index];
+
+            if (_hist->GetEntries() == 0) {
+                _hist->SetBinContent(1, 0.0);
+            }
+            _sub_pad->cd();
+            _hist->Draw("hist");
+        }
+        _pad->cd();
+        _pad_canvas->DrawClonePad();
+    }
+}
+
+void GlobalChannelPainter::draw_global_channel_hists1D_group(std::vector <std::vector <TH1D*>> hists_list, std::unordered_map <int, int> hists_channel_map, const std::string& hist_name, const std::string& hist_title, std::vector <EColor> colors, std::vector <std::string> legend_labels){
+    this->clear_canvas();
+    this->painter_canvas = new TCanvas(hist_name.c_str(), hist_title.c_str(), 800, 600);
+    this->painter_canvas->Divide(5, 5, 0.0, 0.0);
+    for (int _sub_canvas_index = 1; _sub_canvas_index <= 25; _sub_canvas_index++) {
+        auto _pad = (TPad*) this->painter_canvas->GetPad(_sub_canvas_index);
+        _pad->SetLeftMargin(0);
+        _pad->SetRightMargin(0);
+        _pad->SetTopMargin(0);
+        _pad->SetBottomMargin(0);
+
+        auto _pad_module_fpga = this->module_fpga_list[_sub_canvas_index - 1];
+        auto _pad_module_asic = this->module_asic_list[_sub_canvas_index - 1];
+        auto _pad_module_connector = this->module_connector_list[_sub_canvas_index - 1];
+        auto _pad_connector = this->connector_list_list[_pad_module_connector-1];
+
+        auto _pad_canvas = new TCanvas(("sub_canvas_" + std::to_string(_sub_canvas_index)).c_str(), ("Sub Canvas " + std::to_string(_sub_canvas_index)).c_str(), 800, 600);
+        this->sub_canvas_list.push_back(_pad_canvas);
+        _pad_canvas->Divide(4, 4, 0.0, 0.0);
+        for (int _sub_sub_canvas_index = 1; _sub_sub_canvas_index <= 16; _sub_sub_canvas_index++) {
+            auto _sub_pad = (TPad*) _pad_canvas->GetPad(_sub_sub_canvas_index);
+            _sub_pad->SetLeftMargin(0);
+            _sub_pad->SetRightMargin(0);
+            _sub_pad->SetTopMargin(0);
+            _sub_pad->SetBottomMargin(0);
+
+            auto _unified_channel = _pad_connector[_sub_sub_canvas_index - 1] + _pad_module_fpga * FPGA_CHANNEL_NUMBER_VALID + _pad_module_asic * int(FPGA_CHANNEL_NUMBER_VALID / 2);
+            auto _channel_index = hists_channel_map[_unified_channel];
+            auto _hist_list = hists_list[_channel_index];
+
+            TLegend* _legend = new TLegend(0.7, 0.7, 0.89, 0.89);
+            _legend->SetFillColor(0);
+            _legend->SetBorderSize(0);
+            _legend->SetLineColorAlpha(0, 0);
+
+            for (int _hist_index = 0; _hist_index < _hist_list.size(); _hist_index++) {
+                auto _hist = _hist_list[_hist_index];
+                _hist->SetLineColor(colors[_hist_index % colors.size()]);
+                if (_hist->GetEntries() == 0) {
+                    _hist->SetBinContent(1, 0.0);
+                }
+                _hist->SetStats(0);
+                _sub_pad->cd();
+                if (_hist_index == 0) {
+                    _hist->Draw();
+                } else {
+                    _hist->Draw("same");
+                }
+                _legend->AddEntry(_hist, legend_labels[_hist_index].c_str(), "l");
+            }
+            _legend->Draw();
+        }
+        _pad->cd();
+        _pad_canvas->DrawClonePad();
+    }
+}

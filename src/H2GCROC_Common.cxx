@@ -100,6 +100,7 @@ ScriptOptions parse_arguments_single_json(int argc, char **argv, const std::stri
     program.add_argument("-f", "--file").help("Input .json file").required();
     program.add_argument("-o", "--output").help("Output .root file").required();
     program.add_argument("-e", "--events").help("Number of events to process").default_value(std::string("-1"));
+    program.add_argument("--focal").help("Use FoCal mapping").default_value(false).implicit_value(true);
     program.add_argument("-v", "--verbose").help("Verbose mode").default_value(false).implicit_value(true);
 
     try {
@@ -108,6 +109,7 @@ ScriptOptions parse_arguments_single_json(int argc, char **argv, const std::stri
         opts.output_file = program.get<std::string>("--output");
         auto n_events_str = program.get<std::string>("--events");
         opts.n_events = std::stoi(n_events_str);
+        opts.focal = program.get<bool>("--focal");
         opts.verbose = program.get<bool>("--verbose");
     } catch (const std::runtime_error& err) {
         LOG(ERROR) << err.what();
@@ -275,6 +277,60 @@ GlobalChannelPainter::GlobalChannelPainter(const std::string& mapping_file) {
         LOG(ERROR) << "ASIC vector length mismatch!";
         exit(1);
     }
+    this->is_EEEMCal_mapping = true;
+    this->is_FoCal_mapping = false;
+}
+
+GlobalChannelPainter::GlobalChannelPainter(const std::string& mapping_file, const std::string& channel_mapping_file){
+    std::ifstream ifs(mapping_file);
+    if (!ifs.is_open()) {
+        LOG(ERROR) << "Failed to open mapping file " << mapping_file;
+        exit(1);
+    }
+    if (this->focal_mapping_json.empty()) {
+        ifs >> this->focal_mapping_json;
+    } else {
+        LOG(WARNING) << "Mapping file " << mapping_file << " overwritten!";
+        focal_mapping_json.clear();
+        ifs >> this->focal_mapping_json;
+    }
+    ifs.close();
+
+    std::ifstream channel_ifs(channel_mapping_file);
+    if (!channel_ifs.is_open()) {
+        LOG(ERROR) << "Failed to open channel mapping file " << channel_mapping_file;
+        exit(1);
+    }
+    if (this->focal_channel_mapping_json.empty()) {
+        channel_ifs >> this->focal_channel_mapping_json;
+    } else {
+        LOG(WARNING) << "Channel mapping file " << channel_mapping_file << " overwritten!";
+        focal_channel_mapping_json.clear();
+        channel_ifs >> this->focal_channel_mapping_json;
+    }
+    channel_ifs.close();
+
+    for(int _module_index = 0; _module_index < 9; _module_index++){
+        this->focal_module_board_list.push_back(this->focal_mapping_json["module" + std::to_string(_module_index + 1) + "_board"].get<std::vector<int>>());
+        this->focal_module_channel_list.push_back(this->focal_mapping_json["module" + std::to_string(_module_index + 1) + "_chn"].get<std::vector<int>>());
+    }
+
+    for (auto& [key, value] : this->focal_channel_mapping_json["CAEN_Ports"].items()) {
+        int from = std::stoi(key);
+        std::string to_str = value;
+        int to = std::stoi(to_str);
+        this->focal_channel_map[from] = to;
+    }
+
+    for (auto& [key, value] : this->focal_channel_mapping_json["CAEN_Boards"].items()) {
+        int from = std::stoi(key);
+        std::string to_str = value;
+        int to = std::stoi(to_str);
+        this->focal_fpga_map[to] = from;
+    }
+
+    this->is_EEEMCal_mapping = false;
+    this->is_FoCal_mapping = true;
 }
 
 GlobalChannelPainter::~GlobalChannelPainter() {
@@ -299,138 +355,437 @@ void GlobalChannelPainter::clear_canvas() {
 void GlobalChannelPainter::draw_global_channel_hists2D(std::vector <TH2D*> hists, std::unordered_map <int, int> hists_channel_map, const std::string& hist_name, const std::string& hist_title){
     this->clear_canvas();
     this->painter_canvas = new TCanvas(hist_name.c_str(), hist_title.c_str(), 800, 600);
-    this->painter_canvas->Divide(5, 5, 0.0, 0.0);
-    for (int _sub_canvas_index = 1; _sub_canvas_index <= 25; _sub_canvas_index++) {
-        auto _pad = (TPad*) this->painter_canvas->GetPad(_sub_canvas_index);
-        _pad->SetLeftMargin(0);
-        _pad->SetRightMargin(0);
-        _pad->SetTopMargin(0);
-        _pad->SetBottomMargin(0);
 
-        auto _pad_module_fpga = this->module_fpga_list[_sub_canvas_index - 1];
-        auto _pad_module_asic = this->module_asic_list[_sub_canvas_index - 1];
-        auto _pad_module_connector = this->module_connector_list[_sub_canvas_index - 1];
-        auto _pad_connector = this->connector_list_list[_pad_module_connector-1];
+    if (is_EEEMCal_mapping) {
+        LOG(INFO) << "Drawing global channel hists for EEEMCal";
+        this->painter_canvas->Divide(5, 5, 0.0, 0.0);
+        for (int _sub_canvas_index = 1; _sub_canvas_index <= 25; _sub_canvas_index++) {
+            auto _pad = (TPad*) this->painter_canvas->GetPad(_sub_canvas_index);
+            _pad->SetLeftMargin(0);
+            _pad->SetRightMargin(0);
+            _pad->SetTopMargin(0);
+            _pad->SetBottomMargin(0);
 
-        auto _pad_canvas = new TCanvas(("sub_canvas_" + std::to_string(_sub_canvas_index)).c_str(), ("Sub Canvas " + std::to_string(_sub_canvas_index)).c_str(), 800, 600);
-        this->sub_canvas_list.push_back(_pad_canvas);
-        _pad_canvas->Divide(4, 4, 0.0, 0.0);
-        for (int _sub_sub_canvas_index = 1; _sub_sub_canvas_index <= 16; _sub_sub_canvas_index++) {
-            auto _sub_pad = (TPad*) _pad_canvas->GetPad(_sub_sub_canvas_index);
-            _sub_pad->SetLeftMargin(0);
-            _sub_pad->SetRightMargin(0);
-            _sub_pad->SetTopMargin(0);
-            _sub_pad->SetBottomMargin(0);
+            auto _pad_module_fpga = this->module_fpga_list[_sub_canvas_index - 1];
+            auto _pad_module_asic = this->module_asic_list[_sub_canvas_index - 1];
+            auto _pad_module_connector = this->module_connector_list[_sub_canvas_index - 1];
+            auto _pad_connector = this->connector_list_list[_pad_module_connector-1];
 
-            auto _unified_channel = _pad_connector[_sub_sub_canvas_index - 1] + _pad_module_fpga * FPGA_CHANNEL_NUMBER_VALID + _pad_module_asic * int(FPGA_CHANNEL_NUMBER_VALID / 2);
-            auto _channel_index = hists_channel_map[_unified_channel];
-            auto _hist = hists[_channel_index];
+            auto _pad_canvas = new TCanvas(("sub_canvas_" + std::to_string(_sub_canvas_index)).c_str(), ("Sub Canvas " + std::to_string(_sub_canvas_index)).c_str(), 800, 600);
+            this->sub_canvas_list.push_back(_pad_canvas);
+            _pad_canvas->Divide(4, 4, 0.0, 0.0);
+            for (int _sub_sub_canvas_index = 1; _sub_sub_canvas_index <= 16; _sub_sub_canvas_index++) {
+                auto _sub_pad = (TPad*) _pad_canvas->GetPad(_sub_sub_canvas_index);
+                _sub_pad->SetLeftMargin(0);
+                _sub_pad->SetRightMargin(0);
+                _sub_pad->SetTopMargin(0);
+                _sub_pad->SetBottomMargin(0);
 
-            if (_hist->GetEntries() == 0) {
-                _hist->SetBinContent(1, 0.0);
+                auto _unified_channel = _pad_connector[_sub_sub_canvas_index - 1] + _pad_module_fpga * FPGA_CHANNEL_NUMBER_VALID + _pad_module_asic * int(FPGA_CHANNEL_NUMBER_VALID / 2);
+                auto _channel_index = hists_channel_map[_unified_channel];
+                auto _hist = hists[_channel_index];
+
+                if (_hist->GetEntries() == 0) {
+                    _hist->SetBinContent(1, 0.0);
+                }
+                _sub_pad->cd();
+                _hist->Draw("colz");
             }
-            _sub_pad->cd();
-            _hist->Draw("colz");
+            _pad->cd();
+            _pad_canvas->DrawClonePad();
         }
-        _pad->cd();
-        _pad_canvas->DrawClonePad();
+    } else {
+        if (is_FoCal_mapping) {
+            LOG(INFO) << "Drawing FoCal mapping";
+            this->painter_canvas->Divide(3, 3, 0.0, 0.0);
+            for (int _sub_canvas_index = 1; _sub_canvas_index <= 9; _sub_canvas_index++) {
+                auto _pad = (TPad*) this->painter_canvas->GetPad(_sub_canvas_index);
+                _pad->SetLeftMargin(0);
+                _pad->SetRightMargin(0);
+                _pad->SetTopMargin(0);
+                _pad->SetBottomMargin(0);
+
+                auto _pad_module_board = this->focal_module_board_list[_sub_canvas_index - 1];
+                auto _pad_module_channel = this->focal_module_channel_list[_sub_canvas_index - 1];
+
+                auto _pad_canvas = new TCanvas(("sub_canvas_" + std::to_string(_sub_canvas_index)).c_str(), ("Sub Canvas " + std::to_string(_sub_canvas_index)).c_str(), 800, 600);
+                this->sub_canvas_list.push_back(_pad_canvas);
+                int _pad_divide_x_y;
+                if (_sub_canvas_index == 5) {
+                    _pad_divide_x_y = 7;
+                } else {
+                    _pad_divide_x_y = 5;
+                }
+                _pad_canvas->Divide(_pad_divide_x_y, _pad_divide_x_y, 0.0, 0.0);
+                for (int _sub_sub_canvas_index = 1; _sub_sub_canvas_index <= _pad_divide_x_y*_pad_divide_x_y; _sub_sub_canvas_index++) {
+                    auto _sub_pad = (TPad*) _pad_canvas->GetPad(_sub_sub_canvas_index);
+                    _sub_pad->SetLeftMargin(0);
+                    _sub_pad->SetRightMargin(0);
+                    _sub_pad->SetTopMargin(0);
+                    _sub_pad->SetBottomMargin(0);
+
+                    auto _board_number = _pad_module_board[_sub_sub_canvas_index - 1];
+                    auto _channel_number = _pad_module_channel[_sub_sub_canvas_index - 1];
+                    if (this->focal_channel_map.find(_channel_number) == this->focal_channel_map.end()) {
+                        LOG(ERROR) << "Channel number " << _channel_number << " not found in the channel map!";
+                        exit(1);
+                    }
+                    auto _h2gcroc_channel_number = this->focal_channel_map[_channel_number];
+                    if (this->focal_fpga_map.find(_board_number) == this->focal_fpga_map.end()) {
+                        LOG(ERROR) << "Board number " << _board_number << " not found in the fpga map!";
+                        exit(1);
+                    }
+                    auto _h2gcroc_board_number = this->focal_fpga_map[_board_number];
+
+                    auto _unified_channel = _h2gcroc_board_number * (FPGA_CHANNEL_NUMBER_VALID / 2)  + _h2gcroc_channel_number;
+                    auto _channel_index = hists_channel_map[_unified_channel];
+                    auto _hist = hists[_channel_index];
+
+                    if (_hist->GetEntries() == 0) {
+                        _hist->SetBinContent(1, 0.0);
+                    }
+                    _sub_pad->cd();
+                    _hist->Draw("colz");
+                }
+                _pad->cd();
+                _pad_canvas->DrawClonePad();
+            }
+        }
     }
+    
 }
 
 void GlobalChannelPainter::draw_global_channel_hists1D(std::vector <TH1D*> hists, std::unordered_map <int, int> hists_channel_map, const std::string& hist_name, const std::string& hist_title) {
     this->clear_canvas();
     this->painter_canvas = new TCanvas(hist_name.c_str(), hist_title.c_str(), 800, 600);
-    this->painter_canvas->Divide(5, 5, 0.0, 0.0);
-    for (int _sub_canvas_index = 1; _sub_canvas_index <= 25; _sub_canvas_index++) {
-        auto _pad = (TPad*) this->painter_canvas->GetPad(_sub_canvas_index);
-        _pad->SetLeftMargin(0);
-        _pad->SetRightMargin(0);
-        _pad->SetTopMargin(0);
-        _pad->SetBottomMargin(0);
+    if (is_EEEMCal_mapping) {
+        this->painter_canvas->Divide(5, 5, 0.0, 0.0);
+        for (int _sub_canvas_index = 1; _sub_canvas_index <= 25; _sub_canvas_index++) {
+            auto _pad = (TPad*) this->painter_canvas->GetPad(_sub_canvas_index);
+            _pad->SetLeftMargin(0);
+            _pad->SetRightMargin(0);
+            _pad->SetTopMargin(0);
+            _pad->SetBottomMargin(0);
 
-        auto _pad_module_fpga = this->module_fpga_list[_sub_canvas_index - 1];
-        auto _pad_module_asic = this->module_asic_list[_sub_canvas_index - 1];
-        auto _pad_module_connector = this->module_connector_list[_sub_canvas_index - 1];
-        auto _pad_connector = this->connector_list_list[_pad_module_connector-1];
+            auto _pad_module_fpga = this->module_fpga_list[_sub_canvas_index - 1];
+            auto _pad_module_asic = this->module_asic_list[_sub_canvas_index - 1];
+            auto _pad_module_connector = this->module_connector_list[_sub_canvas_index - 1];
+            auto _pad_connector = this->connector_list_list[_pad_module_connector-1];
 
-        auto _pad_canvas = new TCanvas(("sub_canvas_" + std::to_string(_sub_canvas_index)).c_str(), ("Sub Canvas " + std::to_string(_sub_canvas_index)).c_str(), 800, 600);
-        this->sub_canvas_list.push_back(_pad_canvas);
-        _pad_canvas->Divide(4, 4, 0.0, 0.0);
-        for (int _sub_sub_canvas_index = 1; _sub_sub_canvas_index <= 16; _sub_sub_canvas_index++) {
-            auto _sub_pad = (TPad*) _pad_canvas->GetPad(_sub_sub_canvas_index);
-            _sub_pad->SetLeftMargin(0);
-            _sub_pad->SetRightMargin(0);
-            _sub_pad->SetTopMargin(0);
-            _sub_pad->SetBottomMargin(0);
+            auto _pad_canvas = new TCanvas(("sub_canvas_" + std::to_string(_sub_canvas_index)).c_str(), ("Sub Canvas " + std::to_string(_sub_canvas_index)).c_str(), 800, 600);
+            this->sub_canvas_list.push_back(_pad_canvas);
+            _pad_canvas->Divide(4, 4, 0.0, 0.0);
+            for (int _sub_sub_canvas_index = 1; _sub_sub_canvas_index <= 16; _sub_sub_canvas_index++) {
+                auto _sub_pad = (TPad*) _pad_canvas->GetPad(_sub_sub_canvas_index);
+                _sub_pad->SetLeftMargin(0);
+                _sub_pad->SetRightMargin(0);
+                _sub_pad->SetTopMargin(0);
+                _sub_pad->SetBottomMargin(0);
 
-            auto _unified_channel = _pad_connector[_sub_sub_canvas_index - 1] + _pad_module_fpga * FPGA_CHANNEL_NUMBER_VALID + _pad_module_asic * int(FPGA_CHANNEL_NUMBER_VALID / 2);
-            auto _channel_index = hists_channel_map[_unified_channel];
-            auto _hist = hists[_channel_index];
+                auto _unified_channel = _pad_connector[_sub_sub_canvas_index - 1] + _pad_module_fpga * FPGA_CHANNEL_NUMBER_VALID + _pad_module_asic * int(FPGA_CHANNEL_NUMBER_VALID / 2);
+                auto _channel_index = hists_channel_map[_unified_channel];
+                auto _hist = hists[_channel_index];
 
-            if (_hist->GetEntries() == 0) {
-                _hist->SetBinContent(1, 0.0);
+                if (_hist->GetEntries() == 0) {
+                    _hist->SetBinContent(1, 0.0);
+                }
+                _sub_pad->cd();
+                _hist->Draw("hist");
             }
-            _sub_pad->cd();
-            _hist->Draw("hist");
+            _pad->cd();
+            _pad_canvas->DrawClonePad();
         }
-        _pad->cd();
-        _pad_canvas->DrawClonePad();
+    } else {
+        if (is_FoCal_mapping) {
+            this->painter_canvas->Divide(3, 3, 0.0, 0.0);
+            for (int _sub_canvas_index = 1; _sub_canvas_index <= 9; _sub_canvas_index++) {
+                auto _pad = (TPad*) this->painter_canvas->GetPad(_sub_canvas_index);
+                _pad->SetLeftMargin(0);
+                _pad->SetRightMargin(0);
+                _pad->SetTopMargin(0);
+                _pad->SetBottomMargin(0);
+
+                auto _pad_module_board = this->focal_module_board_list[_sub_canvas_index - 1];
+                auto _pad_module_channel = this->focal_module_channel_list[_sub_canvas_index - 1];
+
+                auto _pad_canvas = new TCanvas(("sub_canvas_" + std::to_string(_sub_canvas_index)).c_str(), ("Sub Canvas " + std::to_string(_sub_canvas_index)).c_str(), 800, 600);
+                this->sub_canvas_list.push_back(_pad_canvas);
+                int _pad_divide_x_y;
+                if (_sub_canvas_index == 5) {
+                    _pad_divide_x_y = 7;
+                } else {
+                    _pad_divide_x_y = 5;
+                }
+                _pad_canvas->Divide(_pad_divide_x_y, _pad_divide_x_y, 0.0, 0.0);
+                for (int _sub_sub_canvas_index = 1; _sub_sub_canvas_index <= _pad_divide_x_y*_pad_divide_x_y; _sub_sub_canvas_index++) {
+                    auto _sub_pad = (TPad*) _pad_canvas->GetPad(_sub_sub_canvas_index);
+                    _sub_pad->SetLeftMargin(0);
+                    _sub_pad->SetRightMargin(0);
+                    _sub_pad->SetTopMargin(0);
+                    _sub_pad->SetBottomMargin(0);
+
+                    auto _board_number = _pad_module_board[_sub_sub_canvas_index - 1];
+                    auto _channel_number = _pad_module_channel[_sub_sub_canvas_index - 1];
+                    if (this->focal_channel_map.find(_channel_number) == this->focal_channel_map.end()) {
+                        LOG(ERROR) << "Channel number " << _channel_number << " not found in the channel map!";
+                        exit(1);
+                    }
+                    auto _h2gcroc_channel_number = this->focal_channel_map[_channel_number];
+                    if (this->focal_fpga_map.find(_board_number) == this->focal_fpga_map.end()) {
+                        LOG(ERROR) << "Board number " << _board_number << " not found in the fpga map!";
+                        exit(1);
+                    }
+                    auto _h2gcroc_board_number = this->focal_fpga_map[_board_number];
+
+                    auto _unified_channel = _h2gcroc_board_number * (FPGA_CHANNEL_NUMBER_VALID / 2)  + _h2gcroc_channel_number;
+                    auto _channel_index = hists_channel_map[_unified_channel];
+                    auto _hist = hists[_channel_index];
+
+                    if (_hist->GetEntries() == 0) {
+                        _hist->SetBinContent(1, 0.0);
+                    }
+
+                    _sub_pad->cd();
+                    _hist->Draw("hist");
+                }
+                _pad->cd();
+                _pad_canvas->DrawClonePad();
+            }
+        }
     }
 }
 
 void GlobalChannelPainter::draw_global_channel_hists1D_group(std::vector <std::vector <TH1D*>> hists_list, std::unordered_map <int, int> hists_channel_map, const std::string& hist_name, const std::string& hist_title, std::vector <EColor> colors, std::vector <std::string> legend_labels){
     this->clear_canvas();
     this->painter_canvas = new TCanvas(hist_name.c_str(), hist_title.c_str(), 800, 600);
-    this->painter_canvas->Divide(5, 5, 0.0, 0.0);
-    for (int _sub_canvas_index = 1; _sub_canvas_index <= 25; _sub_canvas_index++) {
-        auto _pad = (TPad*) this->painter_canvas->GetPad(_sub_canvas_index);
-        _pad->SetLeftMargin(0);
-        _pad->SetRightMargin(0);
-        _pad->SetTopMargin(0);
-        _pad->SetBottomMargin(0);
+    if (is_EEEMCal_mapping) {
+        this->painter_canvas->Divide(5, 5, 0.0, 0.0);
+        for (int _sub_canvas_index = 1; _sub_canvas_index <= 25; _sub_canvas_index++) {
+            auto _pad = (TPad*) this->painter_canvas->GetPad(_sub_canvas_index);
+            _pad->SetLeftMargin(0);
+            _pad->SetRightMargin(0);
+            _pad->SetTopMargin(0);
+            _pad->SetBottomMargin(0);
 
-        auto _pad_module_fpga = this->module_fpga_list[_sub_canvas_index - 1];
-        auto _pad_module_asic = this->module_asic_list[_sub_canvas_index - 1];
-        auto _pad_module_connector = this->module_connector_list[_sub_canvas_index - 1];
-        auto _pad_connector = this->connector_list_list[_pad_module_connector-1];
+            auto _pad_module_fpga = this->module_fpga_list[_sub_canvas_index - 1];
+            auto _pad_module_asic = this->module_asic_list[_sub_canvas_index - 1];
+            auto _pad_module_connector = this->module_connector_list[_sub_canvas_index - 1];
+            auto _pad_connector = this->connector_list_list[_pad_module_connector-1];
 
-        auto _pad_canvas = new TCanvas(("sub_canvas_" + std::to_string(_sub_canvas_index)).c_str(), ("Sub Canvas " + std::to_string(_sub_canvas_index)).c_str(), 800, 600);
-        this->sub_canvas_list.push_back(_pad_canvas);
-        _pad_canvas->Divide(4, 4, 0.0, 0.0);
-        for (int _sub_sub_canvas_index = 1; _sub_sub_canvas_index <= 16; _sub_sub_canvas_index++) {
-            auto _sub_pad = (TPad*) _pad_canvas->GetPad(_sub_sub_canvas_index);
-            _sub_pad->SetLeftMargin(0);
-            _sub_pad->SetRightMargin(0);
-            _sub_pad->SetTopMargin(0);
-            _sub_pad->SetBottomMargin(0);
+            auto _pad_canvas = new TCanvas(("sub_canvas_" + std::to_string(_sub_canvas_index)).c_str(), ("Sub Canvas " + std::to_string(_sub_canvas_index)).c_str(), 800, 600);
+            this->sub_canvas_list.push_back(_pad_canvas);
+            _pad_canvas->Divide(4, 4, 0.0, 0.0);
+            for (int _sub_sub_canvas_index = 1; _sub_sub_canvas_index <= 16; _sub_sub_canvas_index++) {
+                auto _sub_pad = (TPad*) _pad_canvas->GetPad(_sub_sub_canvas_index);
+                _sub_pad->SetLeftMargin(0);
+                _sub_pad->SetRightMargin(0);
+                _sub_pad->SetTopMargin(0);
+                _sub_pad->SetBottomMargin(0);
 
-            auto _unified_channel = _pad_connector[_sub_sub_canvas_index - 1] + _pad_module_fpga * FPGA_CHANNEL_NUMBER_VALID + _pad_module_asic * int(FPGA_CHANNEL_NUMBER_VALID / 2);
-            auto _channel_index = hists_channel_map[_unified_channel];
-            auto _hist_list = hists_list[_channel_index];
+                auto _unified_channel = _pad_connector[_sub_sub_canvas_index - 1] + _pad_module_fpga * FPGA_CHANNEL_NUMBER_VALID + _pad_module_asic * int(FPGA_CHANNEL_NUMBER_VALID / 2);
+                auto _channel_index = hists_channel_map[_unified_channel];
+                auto _hist_list = hists_list[_channel_index];
 
-            TLegend* _legend = new TLegend(0.7, 0.7, 0.89, 0.89);
-            _legend->SetFillColor(0);
-            _legend->SetBorderSize(0);
-            _legend->SetLineColorAlpha(0, 0);
+                TLegend* _legend = new TLegend(0.7, 0.7, 0.89, 0.89);
+                _legend->SetFillColor(0);
+                _legend->SetBorderSize(0);
+                _legend->SetLineColorAlpha(0, 0);
 
-            for (int _hist_index = 0; _hist_index < _hist_list.size(); _hist_index++) {
-                auto _hist = _hist_list[_hist_index];
-                _hist->SetLineColor(colors[_hist_index % colors.size()]);
-                if (_hist->GetEntries() == 0) {
-                    _hist->SetBinContent(1, 0.0);
+                for (int _hist_index = 0; _hist_index < _hist_list.size(); _hist_index++) {
+                    auto _hist = _hist_list[_hist_index];
+                    _hist->SetLineColor(colors[_hist_index % colors.size()]);
+                    if (_hist->GetEntries() == 0) {
+                        _hist->SetBinContent(1, 0.0);
+                    }
+                    _hist->SetStats(0);
+                    _sub_pad->cd();
+                    if (_hist_index == 0) {
+                        _hist->Draw();
+                    } else {
+                        _hist->Draw("same");
+                    }
+                    _legend->AddEntry(_hist, legend_labels[_hist_index].c_str(), "l");
                 }
-                _hist->SetStats(0);
-                _sub_pad->cd();
-                if (_hist_index == 0) {
-                    _hist->Draw();
-                } else {
-                    _hist->Draw("same");
-                }
-                _legend->AddEntry(_hist, legend_labels[_hist_index].c_str(), "l");
+                _legend->Draw();
             }
-            _legend->Draw();
+            _pad->cd();
+            _pad_canvas->DrawClonePad();
         }
-        _pad->cd();
-        _pad_canvas->DrawClonePad();
+    } else {
+        if (is_FoCal_mapping) {
+            this->painter_canvas->Divide(3, 3, 0.0, 0.0);
+            for (int _sub_canvas_index = 1; _sub_canvas_index <= 9; _sub_canvas_index++) {
+                auto _pad = (TPad*) this->painter_canvas->GetPad(_sub_canvas_index);
+                _pad->SetLeftMargin(0);
+                _pad->SetRightMargin(0);
+                _pad->SetTopMargin(0);
+                _pad->SetBottomMargin(0);
+
+                auto _pad_module_board = this->focal_module_board_list[_sub_canvas_index - 1];
+                auto _pad_module_channel = this->focal_module_channel_list[_sub_canvas_index - 1];
+
+                auto _pad_canvas = new TCanvas(("sub_canvas_" + std::to_string(_sub_canvas_index)).c_str(), ("Sub Canvas " + std::to_string(_sub_canvas_index)).c_str(), 800, 600);
+                this->sub_canvas_list.push_back(_pad_canvas);
+                int _pad_divide_x_y;
+                if (_sub_canvas_index == 5) {
+                    _pad_divide_x_y = 7;
+                } else {
+                    _pad_divide_x_y = 5;
+                }
+                _pad_canvas->Divide(_pad_divide_x_y, _pad_divide_x_y, 0.0, 0.0);
+                for (int _sub_sub_canvas_index = 1; _sub_sub_canvas_index <= _pad_divide_x_y*_pad_divide_x_y; _sub_sub_canvas_index++) {
+                    auto _sub_pad = (TPad*) _pad_canvas->GetPad(_sub_sub_canvas_index);
+                    _sub_pad->SetLeftMargin(0);
+                    _sub_pad->SetRightMargin(0);
+                    _sub_pad->SetTopMargin(0);
+                    _sub_pad->SetBottomMargin(0);
+
+                    auto _board_number = _pad_module_board[_sub_sub_canvas_index - 1];
+                    auto _channel_number = _pad_module_channel[_sub_sub_canvas_index - 1];
+                    if (this->focal_channel_map.find(_channel_number) == this->focal_channel_map.end()) {
+                        LOG(ERROR) << "Channel number " << _channel_number << " not found in the channel map!";
+                        exit(1);
+                    }
+
+                    auto _h2gcroc_channel_number = this->focal_channel_map[_channel_number];
+                    if (this->focal_fpga_map.find(_board_number) == this->focal_fpga_map.end()) {
+                        LOG(ERROR) << "Board number " << _board_number << " not found in the fpga map!";
+                        exit(1);
+                    }
+                    auto _h2gcroc_board_number = this->focal_fpga_map[_board_number];
+
+                    auto _unified_channel = _h2gcroc_board_number * (FPGA_CHANNEL_NUMBER_VALID / 2)  + _h2gcroc_channel_number;
+                    auto _channel_index = hists_channel_map[_unified_channel];
+                    auto _hist_list = hists_list[_channel_index];
+
+                    TLegend* _legend = new TLegend(0.7, 0.7, 0.89, 0.89);
+                    _legend->SetFillColor(0);
+                    _legend->SetBorderSize(0);
+                    _legend->SetLineColorAlpha(0, 0);
+
+                    for (int _hist_index = 0; _hist_index < _hist_list.size(); _hist_index++) {
+                        auto _hist = _hist_list[_hist_index];
+                        _hist->SetLineColor(colors[_hist_index % colors.size()]);
+                        if (_hist->GetEntries() == 0) {
+                            _hist->SetBinContent(1, 0.0);
+                        }
+                        _hist->SetStats(0);
+                        _sub_pad->cd();
+                        if (_hist_index == 0) {
+                            _hist->Draw();
+                        } else {
+                            _hist->Draw("same");
+                        }
+                        _legend->AddEntry(_hist, legend_labels[_hist_index].c_str(), "l");
+                    }
+                    _legend->Draw();
+
+                }
+                _pad->cd();
+                _pad_canvas->DrawClonePad();
+            }
+        }
+
     }
+}
+
+void GlobalChannelPainter::draw_global_channel_canvas(std::vector <TCanvas*> canvas_list,  std::unordered_map <int, int> hists_channel_map, const std::string& hist_name, const std::string& hist_title) {
+    this->clear_canvas();
+    this->painter_canvas = new TCanvas(hist_name.c_str(), hist_title.c_str(), 800, 600);
+    if (is_EEEMCal_mapping) {
+        this->painter_canvas->Divide(5, 5, 0.0, 0.0);
+        for (int _sub_canvas_index = 1; _sub_canvas_index <= 25; _sub_canvas_index++) {
+            auto _pad = (TPad*) this->painter_canvas->GetPad(_sub_canvas_index);
+            _pad->SetLeftMargin(0);
+            _pad->SetRightMargin(0);
+            _pad->SetTopMargin(0);
+            _pad->SetBottomMargin(0);
+
+            auto _pad_module_fpga = this->module_fpga_list[_sub_canvas_index - 1];
+            auto _pad_module_asic = this->module_asic_list[_sub_canvas_index - 1];
+            auto _pad_module_connector = this->module_connector_list[_sub_canvas_index - 1];
+            auto _pad_connector = this->connector_list_list[_pad_module_connector-1];
+
+            auto _pad_canvas = new TCanvas(("sub_canvas_" + std::to_string(_sub_canvas_index)).c_str(), ("Sub Canvas " + std::to_string(_sub_canvas_index)).c_str(), 800, 600);
+            this->sub_canvas_list.push_back(_pad_canvas);
+            _pad_canvas->Divide(4, 4, 0.0, 0.0);
+            for (int _sub_sub_canvas_index = 1; _sub_sub_canvas_index <= 16; _sub_sub_canvas_index++) {
+                auto _sub_pad = (TPad*) _pad_canvas->GetPad(_sub_sub_canvas_index);
+                _sub_pad->SetLeftMargin(0);
+                _sub_pad->SetRightMargin(0);
+                _sub_pad->SetTopMargin(0);
+                _sub_pad->SetBottomMargin(0);
+
+                auto _unified_channel = _pad_connector[_sub_sub_canvas_index - 1] + _pad_module_fpga * FPGA_CHANNEL_NUMBER_VALID + _pad_module_asic * int(FPGA_CHANNEL_NUMBER_VALID / 2);
+                auto _channel_index = hists_channel_map[_unified_channel];
+                auto _canvas = canvas_list[_channel_index];
+                _sub_pad->cd();
+                for (int _component_index = 0; _component_index < _canvas->GetListOfPrimitives()->GetSize(); _component_index++) {
+                    auto _component = _canvas->GetListOfPrimitives()->At(_component_index);
+                    _component->Draw();
+                }
+            }
+            _pad->cd();
+            _pad_canvas->DrawClonePad();
+        }
+    } else {
+        if (is_FoCal_mapping) {
+            this->painter_canvas->Divide(3, 3, 0.0, 0.0);
+            for (int _sub_canvas_index = 1; _sub_canvas_index <= 9; _sub_canvas_index++) {
+                auto _pad = (TPad*) this->painter_canvas->GetPad(_sub_canvas_index);
+                _pad->SetLeftMargin(0);
+                _pad->SetRightMargin(0);
+                _pad->SetTopMargin(0);
+                _pad->SetBottomMargin(0);
+
+                auto _pad_module_board = this->focal_module_board_list[_sub_canvas_index - 1];
+                auto _pad_module_channel = this->focal_module_channel_list[_sub_canvas_index - 1];
+
+                auto _pad_canvas = new TCanvas(("sub_canvas_" + std::to_string(_sub_canvas_index)).c_str(), ("Sub Canvas " + std::to_string(_sub_canvas_index)).c_str(), 800, 600);
+                this->sub_canvas_list.push_back(_pad_canvas);
+                int _pad_divide_x_y;
+                if (_sub_canvas_index == 5) {
+                    _pad_divide_x_y = 7;
+                } else {
+                    _pad_divide_x_y = 5;
+                }
+                _pad_canvas->Divide(_pad_divide_x_y, _pad_divide_x_y, 0.0, 0.0);
+                for (int _sub_sub_canvas_index = 1; _sub_sub_canvas_index <= _pad_divide_x_y*_pad_divide_x_y; _sub_sub_canvas_index++) {
+                    auto _sub_pad = (TPad*) _pad_canvas->GetPad(_sub_sub_canvas_index);
+                    _sub_pad->SetLeftMargin(0);
+                    _sub_pad->SetRightMargin(0);
+                    _sub_pad->SetTopMargin(0);
+                    _sub_pad->SetBottomMargin(0);
+
+                    auto _board_number = _pad_module_board[_sub_sub_canvas_index - 1];
+                    auto _channel_number = _pad_module_channel[_sub_sub_canvas_index - 1];
+                    if (this->focal_channel_map.find(_channel_number) == this->focal_channel_map.end()) {
+                        LOG(ERROR) << "Channel number " << _channel_number << " not found in the channel map!";
+                        exit(1);
+                    }
+                    auto _h2gcroc_channel_number = this->focal_channel_map[_channel_number];
+
+                    if (this->focal_fpga_map.find(_board_number) == this->focal_fpga_map.end()) {
+                        LOG(ERROR) << "Board number " << _board_number << " not found in the fpga map!";
+                        exit(1);
+                    }
+
+                    auto _h2gcroc_board_number = this->focal_fpga_map[_board_number];
+
+                    auto _unified_channel = _h2gcroc_board_number * (FPGA_CHANNEL_NUMBER_VALID / 2)  + _h2gcroc_channel_number;
+                    auto _channel_index = hists_channel_map[_unified_channel];
+                    auto _canvas = canvas_list[_channel_index];
+                    _sub_pad->cd();
+
+                    for (int _component_index = 0; _component_index < _canvas->GetListOfPrimitives()->GetSize(); _component_index++) {
+                        auto _component = _canvas->GetListOfPrimitives()->At(_component_index);
+                        _component->Draw();
+                    }
+                }
+                _pad->cd();
+                _pad_canvas->DrawClonePad();
+            }
+        }
+    }
+    
 }

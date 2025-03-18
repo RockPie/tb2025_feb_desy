@@ -2,6 +2,18 @@
 
 INITIALIZE_EASYLOGGINGPP
 
+double ExpShifted(double *x, double *par) {
+    double A = par[0];
+    double x0 = par[1];
+    double B = par[2];
+    double C = par[3];
+    if (x[0] < x0) {
+        return 0;
+    } else {
+        return A * exp(-B * (x[0] - x0)) + C;
+    }
+}
+
 int main(int argc, char **argv) {
     ScriptOptions opts = parse_arguments_single_json(argc, argv, "1.0");
 
@@ -26,6 +38,8 @@ int main(int argc, char **argv) {
     std::string config_info = config_content["Info"].get<std::string>();
     // std::vector <UInt_t> hist_cut_values = config_content["ADC Cut"].get<std::vector<UInt_t>>();
     std::vector <UInt_t> hist_cut_values = {};
+    std::vector <double> toa_thresholds; // in adc
+    bool enable_focal_mapping = opts.focal;
 
     LOG(INFO) << "Phase scan: " << config_info;
 
@@ -40,17 +54,36 @@ int main(int argc, char **argv) {
     const double toa_ns_min = 25.0;
     const double toa_ns_max = 7*25.0;
 
+    bool enable_timewalk_correction = false;
+    std::string timewalk_correction_file = "dump/201_PhaseScanToA/FoCal/PhaseScan_01_fitting_results.json";
+    std::ifstream timewalk_correction_json_file(timewalk_correction_file);
+    if (!timewalk_correction_json_file.is_open()) {
+        LOG(ERROR) << "Failed to open timewalk correction json file " << timewalk_correction_file;
+        return 1;
+    }
+    json timewalk_correction_json;
+    timewalk_correction_json_file >> timewalk_correction_json;
+    timewalk_correction_json_file.close();
+
+    std::vector <int> timewalk_correction_uni_channel = timewalk_correction_json["unified_channel_numbers"].get<std::vector<int>>();
+    std::vector <double> timewalk_correction_parA = timewalk_correction_json["A"].get<std::vector<double>>();
+    std::vector <double> timewalk_correction_parB = timewalk_correction_json["B"].get<std::vector<double>>();
+    std::vector <double> timewalk_correction_parC = timewalk_correction_json["C"].get<std::vector<double>>();
+    std::vector <double> timewalk_correction_parx0 = timewalk_correction_json["x0"].get<std::vector<double>>();
+
     std::vector <std::vector <TH2D*>> phase_scan_hists_cut;
     std::vector <TDirectory*> phase_scan_hists_cut_folders;
 
     std::vector <TH2D*> phase_scan_hists_toa_valid;
     std::vector <TH2D*> phase_scan_toa_hists;
     std::vector <TH2D*> phase_scan_hists_toa_shifted;
+    std::vector <TH2D*> phase_scan_adc_toa_correlation;
     std::vector <std::vector <TH1D*>> phase_scan_toa_phase_hists;
 
     TDirectory *phase_scan_hists_toa_valid_folder;
     TDirectory *phase_scan_toa_hists_folder;
     TDirectory *phase_scan_hists_toa_shifted_folder;
+    TDirectory *phase_scan_adc_toa_correlation_folder;
     TDirectory *phase_scan_toa_phase_hists_folder;
 
     std::unordered_map <int, int> phase_scan_hists_toa_valid_unified_channel_map;
@@ -165,6 +198,7 @@ int main(int argc, char **argv) {
                 phase_scan_toa_hists_folder     = output_root->mkdir(("PhaseScanTOAHists_Run" + std::to_string(_run_number)).c_str());
                 phase_scan_hists_toa_shifted_folder = output_root->mkdir(("PhaseScanHistsTOAShifted_Run" + std::to_string(_run_number)).c_str());
                 phase_scan_toa_phase_hists_folder = output_root->mkdir(("PhaseScanTOAPhaseHists_Run" + std::to_string(_run_number)).c_str());
+                phase_scan_adc_toa_correlation_folder = output_root->mkdir(("PhaseScanADCTOACorrelation_Run" + std::to_string(_run_number)).c_str());
                 int _hist_index = 0;
                 for (int _fpga_index = 0; _fpga_index < fpga_count; _fpga_index++) {
                     auto _fpga_id = _legal_fpga_id_list[_fpga_index];
@@ -186,8 +220,12 @@ int main(int argc, char **argv) {
                         phase_scan_hists_toa_shifted.push_back(_hist_shifted);
                         _hist_shifted->SetDirectory(phase_scan_hists_toa_shifted_folder);
 
+                        auto *_hist_adc_toa_correlation = new TH2D(("phase_scan_adc_toa_correlation_chn" + std::to_string(_unified_valid_channel_number)).c_str(), ("Phase Scan ADC TOA Correlation Channel # " + std::to_string(_unified_valid_channel_number)).c_str(), 256, 0, 1024, (toa_ns_max - toa_ns_min) / toa_ns_bin_size, toa_ns_min, toa_ns_max);
+                        phase_scan_adc_toa_correlation.push_back(_hist_adc_toa_correlation);
+                        _hist_adc_toa_correlation->SetDirectory(phase_scan_adc_toa_correlation_folder);
+
                         auto *_phase_hists_toa = new std::vector <TH1D*>();
-                        int _hist_toa_time_bins = int((toa_ns_max - toa_ns_min) / toa_ns_bin_size);
+                        int _hist_toa_time_bins = int((toa_ns_max - toa_ns_min) *2 / toa_ns_bin_size);
                         for (int _phase_index = 0; _phase_index < config_phase_settings.size(); _phase_index++) {
                             auto _phase = config_phase_settings[_phase_index];
                             auto *_hist_phase = new TH1D(("phase_scan_toa_phase_hist_chn" + std::to_string(_unified_valid_channel_number) + "_phase" + std::to_string(_phase)).c_str(), ("Phase Scan TOA Phase Channel # " + std::to_string(_unified_valid_channel_number) + " Phase " + std::to_string(_phase)).c_str(), _hist_toa_time_bins, toa_ns_min, toa_ns_max);
@@ -195,6 +233,8 @@ int main(int argc, char **argv) {
                             _hist_phase->SetDirectory(phase_scan_toa_phase_hists_folder);
                         }
                         phase_scan_toa_phase_hists.push_back(*_phase_hists_toa);
+
+                        toa_thresholds.push_back(1024);
 
                         _hist_index++;
                     }
@@ -316,7 +356,8 @@ int main(int argc, char **argv) {
                             _val0_max = _value;
                         }
                         auto _toa_value = _val2_list[_channel_index + _sample_index * FPGA_CHANNEL_NUMBER];
-                        if (_toa_value > _val2_max && _val2_max == 0){
+                        // if (_toa_value > _val2_max && _val2_max == 0){
+                        if (_toa_value > _val2_max && _val2_max == 0 && _toa_value % 256 != 0){
                             if (_val2_max > 0){
                                 _multiple_val2_max = true;
                             }
@@ -324,14 +365,61 @@ int main(int argc, char **argv) {
                             _val2_max_machine_gun_sample = _sample_index;
                         }
                     }
+                    if (_val2_max > 0) {
+                        if (_val0_max < toa_thresholds[_unified_valid_channel_number]){
+                            toa_thresholds[_unified_valid_channel_number] = _val0_max;
+                        }
+                    }
                     double _toa_value_ns = _val2_max_machine_gun_sample * sample_time + decode_toa_value_ns(_val2_max);
-                    if (_val2_max > 988){
+                    // if (_val2_max > 988){
+                    //     _toa_value_ns -= 6.25;
+                    // }
+                    if (_val2_max > 730){
                         _toa_value_ns -= 25.0;
                     }
+                    // if (_val2_max > 476){
+                    //     _toa_value_ns -= 6.25;
+                    // }
+                    // if (_val2_max > 220){
+                    //     _toa_value_ns -= 6.25;
+                    // }
+                    
+                    // _toa_value_ns += _phase_setting * phase_time;
+                    // if(_toa_value_ns > 115){
+                    //     _toa_value_ns -= 25.0;
+                    // }
+                    // if(_toa_value_ns > 115){
+                    //     _toa_value_ns -= 25.0;
+                    // }
+                    // for (int _subtract_time = 0; _subtract_time < 10; _subtract_time++){
+                    //     if (_toa_value_ns > 115){
+                    //         _toa_value_ns -= 25.0;
+                    //     }
+                    // }
                     _toa_value_ns += _phase_setting * phase_time;
-                    if (_unified_valid_channel_number == 160){
+                    if (_unified_valid_channel_number == 65){
                         toa_toa_ns_2d_hist->Fill(_toa_value_ns, _val2_max);
                     }
+                    auto _hist_toa = phase_scan_toa_hists[_hist_index];
+                    if (_val2_max > 0){
+                        _hist_toa->Fill(_toa_value_ns, _val2_max);
+                    }
+                    if (enable_timewalk_correction){
+                        auto _timewalk_correction_index = std::find(timewalk_correction_uni_channel.begin(), timewalk_correction_uni_channel.end(), _unified_valid_channel_number);
+                        if (_timewalk_correction_index != timewalk_correction_uni_channel.end()){
+                            auto _timewalk_correction_index_int = std::distance(timewalk_correction_uni_channel.begin(), _timewalk_correction_index);
+                            auto _timewalk_correction_parA = timewalk_correction_parA[_timewalk_correction_index_int];
+                            auto _timewalk_correction_parB = timewalk_correction_parB[_timewalk_correction_index_int];
+                            auto _timewalk_correction_parC = timewalk_correction_parC[_timewalk_correction_index_int];
+                            auto _timewalk_correction_parx0 = timewalk_correction_parx0[_timewalk_correction_index_int];
+                            double _x_val = _val0_max;
+                            auto _timewalk_correction = ExpShifted(&_x_val, new double[4]{_timewalk_correction_parA, _timewalk_correction_parx0, _timewalk_correction_parB, _timewalk_correction_parC});
+                            _toa_value_ns -= _timewalk_correction;
+                            _toa_value_ns += 90.0;
+                        }
+                    }
+                    auto _hist_adc_toa_correlation = phase_scan_adc_toa_correlation[_hist_index];
+                    _hist_adc_toa_correlation->Fill(_val0_max, _toa_value_ns);
                     // double _toa_value_ns = 2 * sample_time + decode_toa_value_ns(_val2_max) + _phase_setting * phase_time;
                     double _toa_target_shifted = toa_target;
                     double _toa_correction = _toa_target_shifted - _toa_value_ns;
@@ -355,10 +443,6 @@ int main(int argc, char **argv) {
                         if (_val2_max > 0){
                             _hist->Fill(_time, _value);
                             _hist_shifted->Fill(_time_shifted, _value);
-                        }
-                        if (_toa_value > 0){
-                            auto _hist_toa = phase_scan_toa_hists[_hist_index];
-                            _hist_toa->Fill(_time, _toa_value);
                         }
                         for (int _cut_index = 0; _cut_index < hist_cut_values.size(); _cut_index++) {
                             if (_val0_max > hist_cut_values[_cut_index]){
@@ -390,7 +474,12 @@ int main(int argc, char **argv) {
     }
 
     LOG(INFO) << "Drawing global phase scan canvas";
-    auto global_painter = new GlobalChannelPainter("data/config/EEEMCal_Mapping_DESY_2025.json");
+    GlobalChannelPainter *global_painter = nullptr;
+    if (enable_focal_mapping){
+        global_painter = new GlobalChannelPainter("data/SPS_2024/config/focalh_mapping.json", "data/SPS_2024/config/h2gcroc_mapping.json");
+    } else {
+        global_painter = new GlobalChannelPainter("data/DESY_2025/config/EEEMCal_Mapping_DESY_2025.json");
+    }
     global_painter->draw_global_channel_hists2D(phase_scan_hists_toa_valid, phase_scan_hists_toa_valid_unified_channel_map, "PhaseScanHistsNoCut", "Phase Scan Channel # ");
     auto global_phase_scan_toa_valid_canvas = global_painter->get_canvas();
 
@@ -482,6 +571,115 @@ int main(int argc, char **argv) {
     output_root->cd();
     toa_toa_ns_2d_hist->Write();
 
+    std::vector <TCanvas*> phase_scan_adc_toa_correlation_canvas;
+
+    for (int _hist_index = 0; _hist_index < phase_scan_adc_toa_correlation.size(); _hist_index++) {
+        auto _canvas = new TCanvas(("phase_scan_adc_toa_correlation_chn" + std::to_string(_hist_index)).c_str(), ("Phase Scan ADC TOA Correlation Channel # " + std::to_string(_hist_index)).c_str(), 800, 600);
+        phase_scan_adc_toa_correlation_canvas.push_back(_canvas);
+    }
+
+    phase_scan_adc_toa_correlation_folder->cd();
+    std::vector <TF1*> phase_scan_adc_toa_correlation_fit;
+
+    std::vector <int> fitting_unified_channel_numbers;
+    std::vector <double> fitting_results_A;
+    std::vector <double> fitting_results_x0;
+    std::vector <double> fitting_results_B;
+    std::vector <double> fitting_results_C;
+
+    int fit_event_threshold = 100;
+
+    for (int _hist_index = 0; _hist_index < phase_scan_adc_toa_correlation.size(); _hist_index++) {
+        auto _hist = phase_scan_adc_toa_correlation[_hist_index];
+        phase_scan_adc_toa_correlation_canvas[_hist_index]->cd();
+        _hist->SetStats(0);
+
+        auto _hist_profX = _hist->ProfileX();
+        _hist_profX->SetMarkerStyle(20);
+        _hist_profX->SetMarkerSize(0.5);
+        _hist_profX->SetMarkerColor(kBlack);
+        _hist_profX->SetLineColor(kBlack);
+        _hist_profX->SetTitle("");
+        _hist_profX->SetStats(0);
+        _hist_profX->Draw("p");
+
+        if (_hist_profX->GetEntries() > fit_event_threshold){
+            auto _hist_min = _hist_profX->GetMinimum();
+            TF1* _fit = new TF1(("fit_" + std::to_string(_hist_index)).c_str(), ExpShifted, toa_thresholds[_hist_index], 1024, 4);
+            _fit->SetParameters(100, toa_thresholds[_hist_index], 0.2, _hist_min);
+            _fit->SetParLimits(0, 0, 1000);
+            _fit->SetParLimits(1, 0, 1024);
+            _fit->SetParLimits(2, 0, 1);
+            _fit->SetParLimits(3, 0, 1000);
+
+            _fit->FixParameter(1, toa_thresholds[_hist_index]);
+    
+            _hist_profX->Fit(("fit_" + std::to_string(_hist_index)).c_str(), "RQN");
+            _fit->Draw("same");
+            phase_scan_adc_toa_correlation_fit.push_back(_fit);
+    
+            auto _fit_A = _fit->GetParameter(0);
+            auto _fit_x0 = _fit->GetParameter(1);
+            auto _fit_B = _fit->GetParameter(2);
+            auto _fit_C = _fit->GetParameter(3);
+    
+            TLegend* _legend = new TLegend(0.65, 0.65, 0.89, 0.89);
+            _legend->SetBorderSize(0);
+            _legend->SetFillColor(0);
+            _legend->SetFillStyle(0);
+
+            // Add vertical line for the threshold
+            TLine* _line = new TLine(toa_thresholds[_hist_index], 0, toa_thresholds[_hist_index], 1024);
+            _line->SetLineColor(kPink);
+            _line->SetLineStyle(2);
+            _line->SetLineWidth(2);
+            _line->Draw();
+
+            TObject *dummy_obj = new TObject();
+            _legend->AddEntry(_hist_profX, "Profile X", "p");
+            _legend->AddEntry(_fit, ("A = " + std::to_string(_fit_A)).c_str());
+            _legend->AddEntry(dummy_obj, ("x0 = " + std::to_string(_fit_x0)).c_str());
+            _legend->AddEntry(dummy_obj, ("B = " + std::to_string(_fit_B)).c_str());
+            _legend->AddEntry(dummy_obj, ("C = " + std::to_string(_fit_C)).c_str());
+
+            _legend->Draw();
+
+            fitting_unified_channel_numbers.push_back(_hist_index);
+            fitting_results_A.push_back(_fit_A);
+            fitting_results_x0.push_back(_fit_x0);
+            fitting_results_B.push_back(_fit_B);
+            fitting_results_C.push_back(_fit_C);
+        }
+
+        _hist_profX->SetDirectory(phase_scan_adc_toa_correlation_folder);
+
+        phase_scan_adc_toa_correlation_canvas[_hist_index]->Update();
+        phase_scan_adc_toa_correlation_canvas[_hist_index]->Write();
+    }
+
+    LOG(INFO) << "Drawing global adc toa correlation canvas";
+    // global_painter->draw_global_channel_canvas(phase_scan_adc_toa_correlation_canvas, phase_scan_hists_toa_valid_unified_channel_map, "PhaseScanADCTOACorrelation", "Phase Scan ADC TOA Correlation Channel # ");
+    // auto global_phase_scan_adc_toa_canvas = global_painter->get_canvas();
+
+    // output_root->cd();
+    // global_phase_scan_adc_toa_canvas->Write();
+
     output_root->Close();
+
+    // save the fitting results to a json file
+    if (!enable_timewalk_correction){
+        json fitting_results;
+        fitting_results["unified_channel_numbers"] = fitting_unified_channel_numbers;
+        fitting_results["A"] = fitting_results_A;
+        fitting_results["x0"] = fitting_results_x0;
+        fitting_results["B"] = fitting_results_B;
+        fitting_results["C"] = fitting_results_C;
+
+        std::string fitting_results_file = opts.output_file.substr(0, opts.output_file.find_last_of(".")) + "_fitting_results.json";
+        std::ofstream fitting_results_stream(fitting_results_file);
+        fitting_results_stream << fitting_results.dump(4);
+        fitting_results_stream.close();
+    }
+    
     return 0;
 }

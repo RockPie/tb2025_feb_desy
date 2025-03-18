@@ -4,6 +4,7 @@ data/*
 dump/*
 temp/*
 .snakemake/*
+workflow/rules/scp_pass.txt
 
 *.exe
 *.h2g

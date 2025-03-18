@@ -15,7 +15,7 @@ double ExpShifted(double *x, double *par) {
 }
 
 int main(int argc, char **argv) {
-    ScriptOptions opts = parse_arguments_single_json(argc, argv, "1.0");
+    ScriptOptions opts = parse_arguments_single_json(argc, argv, "1.1");
 
     // * --- Read the configuration file ------------------------------------------------
     // * --------------------------------------------------------------------------------

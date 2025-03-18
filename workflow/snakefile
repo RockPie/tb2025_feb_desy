@@ -1,4 +1,6 @@
 include: "rules/compile.smk"
 include: "rules/rootfile.smk"
-include: "rules/analysis.smk"
+include: "rules/analysisPhase.smk"
 include: "rules/download.smk"
+
+include: "rules/analysisADC.smk"

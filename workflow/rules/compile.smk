@@ -28,5 +28,12 @@ rule compile:
         export LD_LIBRARY_PATH=/home/shihai/sw/root/root_install/lib:$LD_LIBRARY_PATH
         export ROOTSYS=/home/shihai/sw/root/root_install
         export PYTHONPATH=$ROOTSYS/lib:$PYTHONPATH
-        cd build && cmake .. && make {wildcards.script}
+
+        # Only re-run cmake if build dir doesn't exist
+        if [ ! -d build ]; then
+            mkdir build && cd build && cmake ..
+        fi
+
+        # Build only the modified target
+        cd build && make {wildcards.script} -j
         """

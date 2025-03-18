@@ -1,12 +1,18 @@
 import glob
 import json
 
-config_files_eeemcal = glob.glob("data/DESY_2025/config/Pedestal_*.json")
-config_files_focal = glob.glob("data/SPS_2024/config/Pedestal_*.json")
+pede_config_files_eeemcal = glob.glob("data/DESY_2025/config/Pedestal_*.json")
+pede_config_files_focal = glob.glob("data/SPS_2024/config/Pedestal_*.json")
+
+analysis_adc_config_files_eeemcal = glob.glob("data/DESY_2025/config/AnalysisADC_*.json")
+analysis_adc_config_files_focal = glob.glob("data/SPS_2024/config/AnalysisADC_*.json")
 
 # Extract all samples from filenames
-samples_eeemal = [file.split('/')[-1].replace('.json','') for file in config_files_eeemcal]
-samples_focal = [file.split('/')[-1].replace('.json','') for file in config_files_focal]
+pede_samples_eeemal = [file.split('/')[-1].replace('.json','') for file in pede_config_files_eeemcal]
+pede_samples_focal  = [file.split('/')[-1].replace('.json','') for file in pede_config_files_focal]
+
+analysis_adc_samples_eeemal = [file.split('/')[-1].replace('.json','') for file in analysis_adc_config_files_eeemcal]
+analysis_adc_samples_focal  = [file.split('/')[-1].replace('.json','') for file in analysis_adc_config_files_focal]
 
 rule Pedestal_EEEMCal:
     input:
@@ -38,8 +44,46 @@ rule Pedestal_FoCal:
 
 rule Pedestal_EEEMCal_all:
     input:
-        expand("dump/202_PedestalSub/EEEMCal/{sample}.root", sample=samples_eeemal)
+        expand("dump/202_PedestalSub/EEEMCal/{sample}.root", sample=pede_samples_eeemal)
 
 rule Pedestal_FoCal_all:
     input:
-        expand("dump/202_PedestalSub/FoCal/{sample}.root", sample=samples_focal)
+        expand("dump/202_PedestalSub/FoCal/{sample}.root", sample=pede_samples_focal)
+
+rule AnalysisADC_EEEMCal:
+    input:
+        config="data/DESY_2025/config/{sample}.json",
+        runfiles=lambda wildcards: json.load(open(f"data/DESY_2025/config/{wildcards.sample}.json"))["Run Files"],
+        script="build/203_AnalysisADC",
+        pede=lambda wildcards: json.load(open(f"data/DESY_2025/config/{wildcards.sample}.json"))["Pedestal Subtraction"],
+    output:
+        rootfile="dump/203_AnalysisADC/EEEMCal/{sample}.root"
+    params:
+        event = lambda wildcards: config.get("event", -1)
+    log:
+        "logs/203_AnalysisADC/EEEMCal/{sample}.log"
+    shell:
+        "build/203_AnalysisADC -f {input.config} -o {output.rootfile} -e {params.event} -p {input.pede} &> {log}"
+
+rule AnalysisADC_FoCal:
+    input:
+        config="data/SPS_2024/config/{sample}.json",
+        runfiles=lambda wildcards: json.load(open(f"data/SPS_2024/config/{wildcards.sample}.json"))["Run Files"],
+        script="build/203_AnalysisADC",
+        pede=lambda wildcards: json.load(open(f"data/SPS_2024/config/{wildcards.sample}.json"))["Pedestal Subtraction"],
+    output:
+        rootfile="dump/203_AnalysisADC/FoCal/{sample}.root"
+    params:
+        event = lambda wildcards: config.get("event", -1)
+    log:
+        "logs/203_AnalysisADC/FoCal/{sample}.log"
+    shell:
+        "build/203_AnalysisADC -f {input.config} -o {output.rootfile} -e {params.event} -p {input.pede} --focal &> {log}"
+
+rule AnalysisADC_EEEMCal_all:
+    input:
+        expand("dump/203_AnalysisADC/EEEMCal/{sample}.root", sample=analysis_adc_samples_eeemal)
+
+rule AnalysisADC_FoCal_all:
+    input:
+        expand("dump/203_AnalysisADC/FoCal/{sample}.root", sample=analysis_adc_samples_focal)

@@ -101,6 +101,7 @@ ScriptOptions parse_arguments_single_json(int argc, char **argv, const std::stri
     program.add_argument("-o", "--output").help("Output .root file").required();
     program.add_argument("-e", "--events").help("Number of events to process").default_value(std::string("-1"));
     program.add_argument("--focal").help("Use FoCal mapping").default_value(false).implicit_value(true);
+    program.add_argument("-p", "--pedestal").help("Pedestal .root file").default_value(std::string(""));
     program.add_argument("-v", "--verbose").help("Verbose mode").default_value(false).implicit_value(true);
 
     try {
@@ -111,6 +112,7 @@ ScriptOptions parse_arguments_single_json(int argc, char **argv, const std::stri
         opts.n_events = std::stoi(n_events_str);
         opts.focal = program.get<bool>("--focal");
         opts.verbose = program.get<bool>("--verbose");
+        opts.pedestal_file = program.get<std::string>("--pedestal");
     } catch (const std::runtime_error& err) {
         LOG(ERROR) << err.what();
         LOG(INFO) << program;

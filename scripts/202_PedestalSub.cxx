@@ -343,7 +343,9 @@ int main(int argc, char **argv) {
                         if (_machine_gun_sample_index == config_target_machineguns.end()){
                             continue;
                         } else {
-                            _channel_adc_value += _val0;
+                            if (_hamming_code_pass_list[_sample_index]){
+                                _channel_adc_value += _val0;
+                            }
                         }
 
                     }
@@ -725,9 +727,12 @@ int main(int argc, char **argv) {
     for (int _line_index = 1; _line_index < config_plot_info.size(); _line_index++) {
         _Latex->DrawLatex(_text_line_left, _text_line_start - _text_line_height * _line_index, (config_plot_info[_line_index].c_str()));
     }
-    _Latex->SetTextColor(kGray+3);
-    _Latex->SetTextFont(52);
-    _Latex->DrawLatex(_text_line_left, _text_line_start - _text_line_height * (config_plot_info.size()), "Work in Progress");
+    if (enable_working_in_progress){
+        _Latex->SetTextSize(0.04);
+        _Latex->SetTextColor(kGray+3);
+        _Latex->SetTextFont(52);
+        _Latex->DrawLatex(_text_line_left, _text_line_start - _text_line_height * (config_plot_info.size()), "Work in Progress");
+    }
 
     output_root->cd();
     channel_pede_distribution_canvas->Write();
@@ -772,14 +777,29 @@ int main(int argc, char **argv) {
         }
     }
 
-    channel_pede_tree->Branch("ChannelNumber", &channel_pede_channel_number);
-    channel_pede_tree->Branch("PeakCounts", &channel_pede_peak_counts);
-    channel_pede_tree->Branch("Mean1", &channel_pede_mean1);
-    channel_pede_tree->Branch("Error1", &channel_pede_error1);
-    channel_pede_tree->Branch("Mean2", &channel_pede_mean2);
-    channel_pede_tree->Branch("Error2", &channel_pede_error2);
+    UInt_t _channel_pede_channel_number;
+    UInt_t _channel_pede_peak_counts;
+    Double_t _channel_pede_mean1;
+    Double_t _channel_pede_error1;
+    Double_t _channel_pede_mean2;
+    Double_t _channel_pede_error2;
+
+    channel_pede_tree->Branch("ChannelNumber", &(_channel_pede_channel_number));
+    channel_pede_tree->Branch("PeakCounts", &(_channel_pede_peak_counts));
+    channel_pede_tree->Branch("Mean1", &(_channel_pede_mean1));
+    channel_pede_tree->Branch("Error1", &(_channel_pede_error1));
+    channel_pede_tree->Branch("Mean2", &(_channel_pede_mean2));
+    channel_pede_tree->Branch("Error2", &(_channel_pede_error2));
+
 
     for (int _channel_index = 0; _channel_index < channel_pede_channel_number.size(); _channel_index++) {
+        _channel_pede_channel_number = channel_pede_channel_number[_channel_index];
+        _channel_pede_peak_counts = channel_pede_peak_counts[_channel_index];
+        _channel_pede_mean1 = channel_pede_mean1[_channel_index];
+        _channel_pede_error1 = channel_pede_error1[_channel_index];
+        _channel_pede_mean2 = channel_pede_mean2[_channel_index];
+        _channel_pede_error2 = channel_pede_error2[_channel_index];
+        
         channel_pede_tree->Fill();
     }
 

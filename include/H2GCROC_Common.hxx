@@ -49,6 +49,7 @@ struct ScriptOptions {
     bool focal;
     std::string script_name;
     std::string script_version;
+    std::string pedestal_file;
 };
 
 ScriptOptions parse_arguments_single_root(int argc, char **argv, const std::string& version = "0.1");

@@ -728,7 +728,7 @@ int main(int argc, char **argv) {
         _Latex->DrawLatex(_text_line_left, _text_line_start - _text_line_height * _line_index, (config_plot_info[_line_index].c_str()));
     }
     if (enable_working_in_progress){
-        _Latex->SetTextSize(0.04);
+        _Latex->SetTextSize(0.03);
         _Latex->SetTextColor(kGray+3);
         _Latex->SetTextFont(52);
         _Latex->DrawLatex(_text_line_left, _text_line_start - _text_line_height * (config_plot_info.size()), "Work in Progress");

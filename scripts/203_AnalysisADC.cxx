@@ -23,14 +23,44 @@ int main(int argc, char **argv) {
     std::vector <std::string> config_beam_particles = config_content["Beam Particles"].get<std::vector<std::string>>();
     std::vector <int> config_target_machineguns     = config_content["MachineGuns"].get<std::vector<int>>();
     std::vector <std::string> config_plot_info      = config_content["Plot Info"].get<std::vector<std::string>>();
+    
     bool enable_working_in_progress = config_content["Working in progress"].get<bool>();
     bool enable_focal_mapping = opts.focal;
+
+    int plot_sum_x_min = config_content["Plot Setting"]["Sum X Min"].get<int>();
+    int plot_sum_x_max = config_content["Plot Setting"]["Sum X Max"].get<int>();
+    int plot_sum_x_bin = config_content["Plot Setting"]["Sum X Bin"].get<int>();
+
+    int run_index_lowest_energy = -1;
+    int run_index_highest_energy = -1;
+    for (int _run_index = 0; _run_index < config_run_numbers.size(); _run_index++) {
+        auto _beam_energy = config_beam_energies[_run_index];
+        if (run_index_lowest_energy == -1 || _beam_energy < config_beam_energies[run_index_lowest_energy]) {
+            run_index_lowest_energy = _run_index;
+        }
+        if (run_index_highest_energy == -1 || _beam_energy > config_beam_energies[run_index_highest_energy]) {
+            run_index_highest_energy = _run_index;
+        }
+    }
 
     const int channel_adc_hist_bins = 256;
     const double channel_adc_hist_min = 0;
     const double channel_adc_hist_max = 1024;
 
+    const double toa_time_hist_min = 0.0;
+    const double toa_time_hist_max = 200.0; // unit: ns
+    const int toa_time_hist_bins = 200;
+
+    const double toa_code_hist_min = 0.0;
+    const double toa_code_hist_max = 1024.0;
+    const int toa_code_hist_bins = 256;
+
     const double sample_time = 25.0; // unit: ns
+    const double phase_shift_time = 25.0 / 16.0; // unit: ns
+
+    const double adc_sum_hist_min = double(plot_sum_x_min);
+    const double adc_sum_hist_max = double(plot_sum_x_max);
+    const int adc_sum_hist_bins = plot_sum_x_bin;
 
     GlobalChannelPainter *global_painter = nullptr;
     if (enable_focal_mapping){
@@ -98,6 +128,15 @@ int main(int argc, char **argv) {
     TDirectory *run_chn_sample_hist2d_folder = output_root->mkdir("RunChnSampleHist2D");
 
     std::unordered_map <int, int> channel_wise_hists_unified_channel_map;
+
+    std::vector <std::vector <TH2D*>> run_chn_toatime_toacode_hist2d; // [run_index][channel_index]
+    TDirectory *run_chn_toatime_toacode_hist2d_folder = output_root->mkdir("RunChnToaTimeToaCodeHist2D");
+
+    std::vector <std::vector <TH2D*>> run_chn_toatime_adcmax_hist2d; // [run_index][channel_index]
+    TDirectory *run_chn_toatime_adcmax_hist2d_folder = output_root->mkdir("RunChnToaTimeAdcMaxHist2D");
+
+    std::vector <TH1D*> run_adc_sum_hist1d;
+    TDirectory *run_adc_sum_hist1d_folder = output_root->mkdir("RunAdcSumHist1D");
 
     // * --- Go though all the run files ------------------------------------------------
     // * --------------------------------------------------------------------------------
@@ -191,29 +230,62 @@ int main(int argc, char **argv) {
 
         if (fpga_count > 0 && machine_gun_samples > 0){
             double _max_time = machine_gun_samples * sample_time;
+            int _time_bins = int (_max_time / phase_shift_time);
+            // -- create 2D histograms array
+            // ----------------------------------------------------------------
             std::vector <TH2D*> _chn_hist2d;
+            std::vector <TH2D*> _chn_toatime_toacode_hist2d;
+            std::vector <TH2D*> _chn_toatime_adcmax_hist2d;
+
+            auto _adc_sum_hist1d = new TH1D(("Run_"+std::to_string(_run_number)+"_AdcSum").c_str(), ("Run " + std::to_string(_run_number) + " AdcSum").c_str(), adc_sum_hist_bins, adc_sum_hist_min, adc_sum_hist_max);
+            _adc_sum_hist1d->SetDirectory(run_adc_sum_hist1d_folder);
+            run_adc_sum_hist1d.push_back(_adc_sum_hist1d);
+            // ----------------------------------------------------------------
             if (run_chn_hist2d.size() == 0) {
                 int _hist_index = 0;
                 for (int _fpga_index = 0; _fpga_index < fpga_count; _fpga_index++) {
                     auto _fpga_id = _legal_fpga_id_list[_fpga_index];
                     for (int _valid_channel_index = 0; _valid_channel_index < FPGA_CHANNEL_NUMBER_VALID; _valid_channel_index++) {
                         auto _unified_valid_channel_number = get_unified_valid_fpga_channel(_fpga_id, _valid_channel_index);
-                        auto *_hist2d = new TH2D(("Run_"+std::to_string(_run_number)+"_Chn_"+std::to_string(_unified_valid_channel_number)).c_str(), ("Run " + std::to_string(_run_number) + " Channel " + std::to_string(_unified_valid_channel_number)).c_str(), machine_gun_samples, 0, _max_time, channel_adc_hist_bins, channel_adc_hist_min, channel_adc_hist_max);
+                        channel_wise_hists_unified_channel_map[_unified_valid_channel_number] = _hist_index;
+
+                        auto _hist2d = new TH2D(("Run_"+std::to_string(_run_number)+"_Chn_"+std::to_string(_unified_valid_channel_number)).c_str(), ("Run " + std::to_string(_run_number) + " Channel " + std::to_string(_unified_valid_channel_number)).c_str(), _time_bins, 0, _max_time, channel_adc_hist_bins, channel_adc_hist_min, channel_adc_hist_max);
                         _chn_hist2d.push_back(_hist2d);
                         _hist2d->SetDirectory(run_chn_sample_hist2d_folder);
-                        channel_wise_hists_unified_channel_map[_unified_valid_channel_number] = _hist_index;
+
+                        auto _toatime_toacode_hist2d = new TH2D(("Run_"+std::to_string(_run_number)+"_Chn_"+std::to_string(_unified_valid_channel_number)+"_ToaTimeToaCode").c_str(), ("Run " + std::to_string(_run_number) + " Channel " + std::to_string(_unified_valid_channel_number) + " ToaTimeToaCode").c_str(), toa_time_hist_bins, toa_time_hist_min, toa_time_hist_max, toa_code_hist_bins, toa_code_hist_min, toa_code_hist_max);
+                        _chn_toatime_toacode_hist2d.push_back(_toatime_toacode_hist2d);
+                        _toatime_toacode_hist2d->SetDirectory(run_chn_toatime_toacode_hist2d_folder);
+
+                        auto _toatime_adcmax_hist2d = new TH2D(("Run_"+std::to_string(_run_number)+"_Chn_"+std::to_string(_unified_valid_channel_number)+"_ToaTimeAdcMax").c_str(), ("Run " + std::to_string(_run_number) + " Channel " + std::to_string(_unified_valid_channel_number) + " ToaTimeAdcMax").c_str(), channel_adc_hist_bins, channel_adc_hist_min, channel_adc_hist_max, toa_time_hist_bins, toa_time_hist_min, toa_time_hist_max);
+                        _chn_toatime_adcmax_hist2d.push_back(_toatime_adcmax_hist2d);
+                        _toatime_adcmax_hist2d->SetDirectory(run_chn_toatime_adcmax_hist2d_folder);
+                        
                         _hist_index++;
                     }
                 }
                 run_chn_hist2d.push_back(_chn_hist2d);
+                run_chn_toatime_toacode_hist2d.push_back(_chn_toatime_toacode_hist2d);
+                run_chn_toatime_adcmax_hist2d.push_back(_chn_toatime_adcmax_hist2d);
             } else {
                 for (int _hist_index = 0; _hist_index < run_chn_hist2d[0].size(); _hist_index++) {
                     auto _unified_valid_channel_number = channel_wise_hists_unified_channel_map[_hist_index];
-                    auto *_hist2d = new TH2D(("Run_"+std::to_string(_run_number)+"_Chn_"+std::to_string(_unified_valid_channel_number)).c_str(), ("Run " + std::to_string(_run_number) + " Channel " + std::to_string(_unified_valid_channel_number)).c_str(), machine_gun_samples, 0, _max_time, channel_adc_hist_bins, channel_adc_hist_min, channel_adc_hist_max);
+
+                    auto _hist2d = new TH2D(("Run_"+std::to_string(_run_number)+"_Chn_"+std::to_string(_unified_valid_channel_number)).c_str(), ("Run " + std::to_string(_run_number) + " Channel " + std::to_string(_unified_valid_channel_number)).c_str(), _time_bins, 0, _max_time, channel_adc_hist_bins, channel_adc_hist_min, channel_adc_hist_max);
                     _chn_hist2d.push_back(_hist2d);
                     _hist2d->SetDirectory(run_chn_sample_hist2d_folder);
+
+                    auto _toatime_toacode_hist2d = new TH2D(("Run_"+std::to_string(_run_number)+"_Chn_"+std::to_string(_unified_valid_channel_number)+"_ToaTimeToaCode").c_str(), ("Run " + std::to_string(_run_number) + " Channel " + std::to_string(_unified_valid_channel_number) + " ToaTimeToaCode").c_str(), toa_time_hist_bins, toa_time_hist_min, toa_time_hist_max, toa_code_hist_bins, toa_code_hist_min, toa_code_hist_max);
+                    _chn_toatime_toacode_hist2d.push_back(_toatime_toacode_hist2d);
+                    _toatime_toacode_hist2d->SetDirectory(run_chn_toatime_toacode_hist2d_folder);
+
+                    auto _toatime_adcmax_hist2d = new TH2D(("Run_"+std::to_string(_run_number)+"_Chn_"+std::to_string(_unified_valid_channel_number)+"_ToaTimeAdcMax").c_str(), ("Run " + std::to_string(_run_number) + " Channel " + std::to_string(_unified_valid_channel_number) + " ToaTimeAdcMax").c_str(), channel_adc_hist_bins, channel_adc_hist_min, channel_adc_hist_max, toa_time_hist_bins, toa_time_hist_min, toa_time_hist_max);
+                    _chn_toatime_adcmax_hist2d.push_back(_toatime_adcmax_hist2d);
+                    _toatime_adcmax_hist2d->SetDirectory(run_chn_toatime_adcmax_hist2d_folder);
                 }
                 run_chn_hist2d.push_back(_chn_hist2d);
+                run_chn_toatime_toacode_hist2d.push_back(_chn_toatime_toacode_hist2d);
+                run_chn_toatime_adcmax_hist2d.push_back(_chn_toatime_adcmax_hist2d);
             }
         }
         _input_root->Close();
@@ -308,8 +380,18 @@ int main(int argc, char **argv) {
             branch_last_heartbeat_list.push_back(branch_last_heartbeat);
         }
 
+        int _input_double_tot_counter = 0;
+        int _input_double_toa_counter = 0;
+
+        int _input_valid_tot_counter = 0;
+        int _input_valid_toa_counter = 0;
+
+        auto _run_adc_sum_hist1d = run_adc_sum_hist1d[_run_index];
+
         for (int _entry = 0; _entry < entry_max; _entry++) {
             _input_tree->GetEntry(_entry);
+
+            double _run_adc_sum = 0;
 
             for (int _fpga_index = 0; _fpga_index < fpga_count; _fpga_index++) {
                 auto _fpga_id    = _legal_fpga_id_list[_fpga_index];
@@ -334,6 +416,11 @@ int main(int argc, char **argv) {
                     _hamming_code_pass_list.push_back(_hamming_code_pass);
                 }
 
+                std::vector <int> _channel_val1_max_list;
+                std::vector <int> _channel_val2_max_list;
+                std::vector <int> _channel_val1_max_index_list;
+                std::vector <int> _channel_val2_max_index_list;
+
                 for (int _channel_index = 0; _channel_index < FPGA_CHANNEL_NUMBER; _channel_index++) {
                     auto _channel_valid = get_valid_fpga_channel(_channel_index);
                     if (_channel_valid == -1){
@@ -341,29 +428,111 @@ int main(int argc, char **argv) {
                     }
                     auto _unified_valid_channel_number = get_unified_valid_fpga_channel(_fpga_id, _channel_valid);
                     auto _hist_index = channel_wise_hists_unified_channel_map[_unified_valid_channel_number];
-                    auto _channel_sample_hist2d = run_chn_hist2d[_run_index][_hist_index];
+                    int _val1_max = -1;
+                    int _val1_max_index = -1;
+                    int _val2_max = -1;
+                    int _val2_max_index = -1;
 
-                    UInt_t _val0_max = 0;
-                    UInt_t _val1_max = 0;
-                    UInt_t _val2_max = 0;
+                    for (int _sample_index = 0; _sample_index < machine_gun_samples; _sample_index++) {
+                        auto _val1 = _val1_list[_channel_index + _sample_index * FPGA_CHANNEL_NUMBER];
+                        auto _val2 = _val2_list[_channel_index + _sample_index * FPGA_CHANNEL_NUMBER];
+                        if (_val1 > 0) {
+                            if (_val1_max == -1) {
+                                _val1_max = _val1;
+                                _val1_max_index = _sample_index;
+                                _input_valid_tot_counter++;
+                            } else {
+                                _input_double_tot_counter++;
+                            }
+                        }
+                        if (_val2 > 0) {
+                            if (_val2_max == -1) {
+                                _val2_max = _val2;
+                                _val2_max_index = _sample_index;
+                                _input_valid_toa_counter++;
+                            } else {
+                                _input_double_toa_counter++;
+                            }
+                        }
+                    }
+                    _channel_val1_max_list.push_back(_val1_max);
+                    _channel_val2_max_list.push_back(_val2_max);
+                    _channel_val1_max_index_list.push_back(_val1_max_index);
+                    _channel_val2_max_index_list.push_back(_val2_max_index);
+                }
+
+                for (int _channel_index = 0; _channel_index < FPGA_CHANNEL_NUMBER; _channel_index++) {
+                    auto _channel_valid = get_valid_fpga_channel(_channel_index);
+                    auto _val1_max = _channel_val1_max_list[_channel_index];
+                    auto _val2_max = _channel_val2_max_list[_channel_index];
+                    auto _val1_max_index = _channel_val1_max_index_list[_channel_index];
+                    auto _val2_max_index = _channel_val2_max_index_list[_channel_index];
+
+                    if (_channel_valid == -1){
+                        continue;
+                    }
+                    auto _unified_valid_channel_number = get_unified_valid_fpga_channel(_fpga_id, _channel_valid);
+                    auto _hist_index = channel_wise_hists_unified_channel_map[_unified_valid_channel_number];
+                    auto _channel_sample_hist2d = run_chn_hist2d[_run_index][_hist_index];
+                    auto _channel_toatime_toacode_hist2d = run_chn_toatime_toacode_hist2d[_run_index][_hist_index];
+                    auto _channel_toatime_adcmax_hist2d = run_chn_toatime_adcmax_hist2d[_run_index][_hist_index];
+
+                    int _val0_max = -1;
+                    int _pedestal_event = -1;
 
                     double _channel_adc_value = 0;
 
                     for (int _sample_index = 0; _sample_index < machine_gun_samples; _sample_index++) {
                         auto _val0 = _val0_list[_channel_index + _sample_index * FPGA_CHANNEL_NUMBER];
-                        auto _val1 = _val1_list[_channel_index + _sample_index * FPGA_CHANNEL_NUMBER];
-                        auto _val2 = _val2_list[_channel_index + _sample_index * FPGA_CHANNEL_NUMBER];
-                        if (_val0 > _val0_max)  _val0_max = _val0;
-                        if (_val1 > _val1_max)  _val1_max = _val1;
-                        if (_val2 > _val2_max)  _val2_max = _val2;
+                        if (_sample_index == 0) {
+                            _pedestal_event = int(_val0);
+                        }
+                        if (int(_val0) > _val0_max) {
+                            _val0_max = int(_val0);
+                        }
 
-                        if (_hamming_code_pass_list[_sample_index]){
+                        if (_hamming_code_pass_list[_sample_index] && _val2_max > 0) {
                             _channel_sample_hist2d->Fill(_sample_index * sample_time, _val0);
                         }
                     }
+
+                    // * --- Calculate pedestal subtracted ADC value -------------------------
+                    // * --------------------------------------------------------------------
+                    double _pedestal_mean1       = channel_pede_mean1[_unified_valid_channel_number];
+                    double _pedestal_error1      = channel_pede_error1[_unified_valid_channel_number];
+                    double _pedestal_mean2       = channel_pede_mean2[_unified_valid_channel_number]; 
+                    double _pedestal_error2      = channel_pede_error2[_unified_valid_channel_number];
+                    int _pedestal_peak_counts    = int(channel_pede_peak_counts[_unified_valid_channel_number]);
+
+                    if (_val2_max > 0) {
+                        double _toa_time = decode_toa_value_ns(_val2_max) + _val2_max_index * sample_time;
+                        _channel_toatime_toacode_hist2d->Fill(_toa_time, _val2_max);
+                        _channel_toatime_adcmax_hist2d->Fill(_val0_max, _toa_time);
+                        // LOG(DEBUG) << "ADC Max: " << _val0_max << " TOA Time: " << _toa_time << " TOA Code: " << _val2_max;
+                    }
+
+                    if (_pedestal_peak_counts == 1){
+                        auto _pedestal = _pedestal_mean1;
+                        _channel_adc_value = _val0_max - _pedestal;
+                        _run_adc_sum += _channel_adc_value;
+                    } else if (_pedestal_peak_counts == 2){
+                        auto _pedestal1_dist = std::abs(_val0_max - _pedestal_mean1);
+                        auto _pedestal2_dist = std::abs(_val0_max - _pedestal_mean2);
+                        auto _pedestal = 0;
+                        if (_pedestal1_dist < _pedestal2_dist){
+                            _pedestal = _pedestal_mean1;
+                        } else {
+                            _pedestal = _pedestal_mean2;
+                        }
+                        _channel_adc_value = _val0_max - _pedestal;
+                        _run_adc_sum += _channel_adc_value;
+                    }
                 }
             }
+            _run_adc_sum_hist1d->Fill(_run_adc_sum);
         }
+        LOG(INFO) << "Run " << _run_number << " with " << _input_valid_tot_counter << " valid TOTs (" << (100.0 * _input_valid_tot_counter / (entry_max * fpga_count * FPGA_CHANNEL_NUMBER)) << "%) and " << _input_double_tot_counter << " double TOTs (" << (100.0 * _input_double_tot_counter / (entry_max * fpga_count * FPGA_CHANNEL_NUMBER)) << "%)";
+        LOG(INFO) << "Run " << _run_number << " with " << _input_valid_toa_counter << " valid TOAs (" << (100.0 * _input_valid_toa_counter / (entry_max * fpga_count * FPGA_CHANNEL_NUMBER)) << "%) and " << _input_double_toa_counter << " double TOAs (" << (100.0 * _input_double_toa_counter / (entry_max * fpga_count * FPGA_CHANNEL_NUMBER)) << "%)";
         _input_root->Close();
     }
 
@@ -372,33 +541,295 @@ int main(int argc, char **argv) {
 
     // * --- Save the histograms --------------------------------------------------------
     // * --------------------------------------------------------------------------------
+    bool is_first_pdf_page_written = false;
+    LOG(INFO) << "Saving channel sample histograms ...";
     for (int _run_index = 0; _run_index < config_run_numbers.size(); _run_index++) {
         auto _channel_hist2d = run_chn_hist2d[_run_index];
         run_chn_sample_hist2d_folder->cd();
         for (int _channel_index = 0; _channel_index < _channel_hist2d.size(); _channel_index++) {
             auto _unified_valid_channel_number = channel_wise_hists_unified_channel_map[_channel_index];
-            LOG(INFO) << "Saving channel " << _unified_valid_channel_number;
             auto _hist2d = _channel_hist2d[_channel_index];
             _hist2d->SetStats(0);
-            // set logz
-            _hist2d->SetContour(100);
-            _hist2d->SetOption("colz");
-            LOG(INFO) << "Entries: " << _hist2d->GetEntries();
             _hist2d->Write();
         }
-
-        global_painter->draw_global_channel_hists2D(_channel_hist2d, channel_wise_hists_unified_channel_map, ("Run"+std::to_string(config_run_numbers[_run_index])+"ChnSampleHist2D").c_str(), ("Run " + std::to_string(config_run_numbers[_run_index])).c_str());
-        auto _canvas = global_painter->get_canvas();
-        if (_run_index == 0) {
-            _canvas->SaveAs((pdf_file_name + "(").c_str());
-        } else if (_run_index == config_run_numbers.size() - 1) {
-            _canvas->SaveAs((pdf_file_name + ")").c_str());
-        } else {
-            _canvas->SaveAs(pdf_file_name.c_str());
+        if (_run_index == run_index_highest_energy || _run_index == run_index_lowest_energy){
+            global_painter->draw_global_channel_hists2D(_channel_hist2d, channel_wise_hists_unified_channel_map, ("Run"+std::to_string(config_run_numbers[_run_index])+"ChnSampleHist2D").c_str(), ("Run " + std::to_string(config_run_numbers[_run_index])).c_str());
+            auto _canvas = global_painter->get_canvas();
+            if (!is_first_pdf_page_written){
+                _canvas->SaveAs((pdf_file_name + "(").c_str());
+                is_first_pdf_page_written = true;
+            } else {
+                _canvas->SaveAs(pdf_file_name.c_str());
+            }
+            output_root->cd();
+            _canvas->Write();
         }
-        output_root->cd();
-        _canvas->Write();
     }
+
+    LOG(INFO) << "Saving toa time vs toa code histograms ...";
+    for (int _run_index = 0; _run_index < config_run_numbers.size(); _run_index++) {
+        auto _channel_toatime_toacode_hist2d = run_chn_toatime_toacode_hist2d[_run_index];
+        run_chn_toatime_toacode_hist2d_folder->cd();
+        for (int _channel_index = 0; _channel_index < _channel_toatime_toacode_hist2d.size(); _channel_index++) {
+            auto _unified_valid_channel_number = channel_wise_hists_unified_channel_map[_channel_index];
+            auto _hist2d = _channel_toatime_toacode_hist2d[_channel_index];
+            _hist2d->GetXaxis()->SetTitle("TOA Time [ns]");
+            _hist2d->GetYaxis()->SetTitle("TOA Code");
+            _hist2d->SetStats(0);
+            _hist2d->Write();
+        }
+        if (_run_index == run_index_lowest_energy || _run_index == run_index_highest_energy){
+            global_painter->draw_global_channel_hists2D(_channel_toatime_toacode_hist2d, channel_wise_hists_unified_channel_map, ("Run"+std::to_string(config_run_numbers[_run_index])+"ChnToaTimeToaCodeHist2D").c_str(), ("Run " + std::to_string(config_run_numbers[_run_index])).c_str());
+            auto _canvas = global_painter->get_canvas();
+            _canvas->SaveAs(pdf_file_name.c_str());
+            output_root->cd();
+            _canvas->Write();
+        }
+    }
+
+    LOG(INFO) << "Saving toa time vs adc max histograms ...";
+    for (int _run_index = 0; _run_index < config_run_numbers.size(); _run_index++) {
+        auto _channel_toatime_adcmax_hist2d = run_chn_toatime_adcmax_hist2d[_run_index];
+        run_chn_toatime_adcmax_hist2d_folder->cd();
+        for (int _channel_index = 0; _channel_index < _channel_toatime_adcmax_hist2d.size(); _channel_index++) {
+            auto _unified_valid_channel_number = channel_wise_hists_unified_channel_map[_channel_index];
+            auto _hist2d = _channel_toatime_adcmax_hist2d[_channel_index];
+            _hist2d->GetXaxis()->SetTitle("ADC Max");
+            _hist2d->GetYaxis()->SetTitle("TOA Time [ns]");
+            _hist2d->SetStats(0);
+            _hist2d->Write();
+        }
+        if (_run_index == run_index_lowest_energy || _run_index == run_index_highest_energy){
+            global_painter->draw_global_channel_hists2D(_channel_toatime_adcmax_hist2d, channel_wise_hists_unified_channel_map, ("Run"+std::to_string(config_run_numbers[_run_index])+"ChnToaTimeAdcMaxHist2D").c_str(), ("Run " + std::to_string(config_run_numbers[_run_index])).c_str());
+            auto _canvas = global_painter->get_canvas();
+            _canvas->Print(pdf_file_name.c_str());
+            output_root->cd();
+            _canvas->Write();
+        }
+    }
+
+    int run_adc_sum_hist_max = 0;
+    for (int _run_index = 0; _run_index < config_run_numbers.size(); _run_index++) {
+        auto _adc_sum_hist1d = run_adc_sum_hist1d[_run_index];
+        if (_adc_sum_hist1d->GetMaximum() > run_adc_sum_hist_max) {
+            run_adc_sum_hist_max = _adc_sum_hist1d->GetMaximum();
+        }
+        run_adc_sum_hist1d_folder->cd();
+        _adc_sum_hist1d->SetStats(0);
+        _adc_sum_hist1d->Write();
+    }
+    auto adc_sum_hist1d_canvas = new TCanvas("adc_sum_hist1d_canvas", "adc_sum_hist1d_canvas", 800, 600);
+    auto adc_sum_legend = new TLegend(0.42, 0.5, 0.89, 0.89);
+    adc_sum_legend->SetBorderSize(0);
+    adc_sum_legend->SetFillStyle(0);
+    adc_sum_legend->SetTextSize(0.02);
+    adc_sum_legend->SetTextFont(102);
+
+    for (int _run_index = 0; _run_index < config_run_numbers.size(); _run_index++) {
+        auto _adc_sum_hist1d = run_adc_sum_hist1d[_run_index];
+        _adc_sum_hist1d->SetMaximum(run_adc_sum_hist_max * 1.3);
+        _adc_sum_hist1d->SetLineColor(color_list[_run_index % color_list.size()]);
+        if (_run_index == 0) {
+            _adc_sum_hist1d->SetTitle("ADC Sum for Different Beam Energies");
+            _adc_sum_hist1d->GetXaxis()->SetTitle("ADC Sum");
+            _adc_sum_hist1d->GetYaxis()->SetTitle("Counts");
+            _adc_sum_hist1d->Draw();
+        } else {
+            _adc_sum_hist1d->Draw("SAME");
+        }
+        // * do the gaussian fit
+        std::vector <double> _adc_sum_fit_range = {1.4, 1.6, 1.8, 2.0, 2.2, 2.4, 2.6}; // unit: sigma
+        std::vector <double> _adc_sum_fit_offsets = {-0.5, 0, 0.5}; // unit: sigma
+        double _adc_sum_fit_range_min = 0;
+        double _adc_sum_fit_range_max = 0;
+        double _adc_sum_fit_offset_min = 0;
+        double _adc_sum_fit_offset_max = 0;
+        for (auto _range: _adc_sum_fit_range) {
+            if (_range < _adc_sum_fit_range_min) {
+                _adc_sum_fit_range_min = _range;
+            }
+            if (_range > _adc_sum_fit_range_max) {
+                _adc_sum_fit_range_max = _range;
+            }
+        }
+        for (auto _offset: _adc_sum_fit_offsets) {
+            if (_offset < _adc_sum_fit_offset_min) {
+                _adc_sum_fit_offset_min = _offset;
+            }
+            if (_offset > _adc_sum_fit_offset_max) {
+                _adc_sum_fit_offset_max = _offset;
+            }
+        }
+
+        // * find initial parameters
+        double _adc_sum_fit_mean = _adc_sum_hist1d->GetBinCenter(_adc_sum_hist1d->GetMaximumBin());
+        double _adc_sum_fit_rms = _adc_sum_hist1d->GetRMS();
+        double _adc_sum_fit_initial_fit_min = _adc_sum_fit_mean - _adc_sum_fit_rms * 2;
+        double _adc_sum_fit_initial_fit_max = _adc_sum_fit_mean + _adc_sum_fit_rms * 2;
+        if (_adc_sum_fit_initial_fit_min < 0) {
+            _adc_sum_fit_initial_fit_min = 0;
+        }
+        if (_adc_sum_fit_initial_fit_max > adc_sum_hist_max) {
+            _adc_sum_fit_initial_fit_max = adc_sum_hist_max;
+        }
+        // * do the first round of fitting to get the mu and sigma
+        TF1 *_adc_sum_fit_function = new TF1("adc_sum_fit_function", "gaus", _adc_sum_fit_initial_fit_min, _adc_sum_fit_initial_fit_max);
+        _adc_sum_hist1d->Fit(_adc_sum_fit_function, "RQN");
+        double _adc_sum_fit_mu = _adc_sum_fit_function->GetParameter(1);
+        double _adc_sum_fit_sigma = _adc_sum_fit_function->GetParameter(2);
+        // * draw the mu+-2sigma range
+        double _fit_range_min = _adc_sum_fit_mu - _adc_sum_fit_range_max * _adc_sum_fit_sigma + _adc_sum_fit_offset_min * _adc_sum_fit_sigma;
+        double _fit_range_max = _adc_sum_fit_mu + _adc_sum_fit_range_max * _adc_sum_fit_sigma + _adc_sum_fit_offset_max * _adc_sum_fit_sigma;
+        // TLine *_fit_range_min_line = new TLine(_fit_range_min, 0, _fit_range_min, run_adc_sum_hist_max * 1.3);
+        // TLine *_fit_range_max_line = new TLine(_fit_range_max, 0, _fit_range_max, run_adc_sum_hist_max * 1.3);
+        // _fit_range_min_line->SetLineColor(color_list[_run_index % color_list.size()]);
+        // _fit_range_max_line->SetLineColor(color_list[_run_index % color_list.size()]);
+        // _fit_range_min_line->SetLineStyle(2);
+        // _fit_range_max_line->SetLineStyle(2);
+        // _fit_range_min_line->Draw("SAME");
+        // _fit_range_max_line->Draw("SAME");
+
+        std::vector <double> _adc_sum_fit_res_mean;
+        std::vector <double> _adc_sum_fit_res_sigma;
+        std::vector <double> _adc_sum_fit_res_mean_error;
+        std::vector <double> _adc_sum_fit_res_sigma_error;
+
+        for (auto _fit_range: _adc_sum_fit_range) {
+            for (auto _fit_offset: _adc_sum_fit_offsets) {
+                double _adc_sum_fit_min = _adc_sum_fit_mu - _fit_range * _adc_sum_fit_sigma + _fit_offset * _adc_sum_fit_sigma;
+                double _adc_sum_fit_max = _adc_sum_fit_mu + _fit_range * _adc_sum_fit_sigma + _fit_offset * _adc_sum_fit_sigma;
+                if (_adc_sum_fit_min < 0) {
+                    _adc_sum_fit_min = 0;
+                }
+                if (_adc_sum_fit_max > adc_sum_hist_max) {
+                    _adc_sum_fit_max = adc_sum_hist_max;
+                }
+                auto _adc_sum_fit_function = new TF1(("adc_sum_fit_function_"+std::to_string(_run_index)+"_"+std::to_string(_fit_range)+"_"+std::to_string(_fit_offset)).c_str(), "gaus", _adc_sum_fit_min, _adc_sum_fit_max);
+                _adc_sum_fit_function->SetParameters(_adc_sum_hist1d->GetMaximum(), _adc_sum_fit_mu, _adc_sum_fit_sigma);
+                _adc_sum_hist1d->Fit(_adc_sum_fit_function, "RQN+");
+                _adc_sum_fit_function->SetLineColorAlpha(color_list[_run_index % color_list.size()], 0.2);
+                _adc_sum_fit_function->Draw("SAME");
+
+                _adc_sum_fit_res_mean.push_back(_adc_sum_fit_function->GetParameter(1));
+                _adc_sum_fit_res_sigma.push_back(_adc_sum_fit_function->GetParameter(2));
+                _adc_sum_fit_res_mean_error.push_back(_adc_sum_fit_function->GetParError(1));
+                _adc_sum_fit_res_sigma_error.push_back(_adc_sum_fit_function->GetParError(2));
+            }
+        }
+
+        // * calculate the mean and sigma
+        double _adc_sum_fit_res_mean_weighted  = 0;
+        double _adc_sum_fit_res_sigma_weighted = 0;
+        double _adc_sum_fit_res_mean_err_sys   = 0;
+        double _adc_sum_fit_res_sigma_err_sys  = 0;
+        double _adc_sum_fit_res_mean_err_stat  = 0;
+        double _adc_sum_fit_res_sigma_err_stat = 0;
+
+        // * calculate the weighted mean and sigma
+        double _adc_sum_fit_res_mean_weighted_sum = 0;
+        double _adc_sum_fit_res_sigma_weighted_sum = 0;
+        double _adc_sum_fit_res_mean_weighted_sum_weight = 0;
+        double _adc_sum_fit_res_sigma_weighted_sum_weight = 0;
+
+        for (int _fit_index = 0; _fit_index < _adc_sum_fit_res_mean.size(); _fit_index++) {
+            double _mean = _adc_sum_fit_res_mean[_fit_index];
+            double _sigma = _adc_sum_fit_res_sigma[_fit_index];
+            double _mean_error = _adc_sum_fit_res_mean_error[_fit_index];
+            double _sigma_error = _adc_sum_fit_res_sigma_error[_fit_index];
+            double _weight_mean = 1.0 / (_mean_error * _mean_error);
+            double _weight_sigma = 1.0 / (_sigma_error * _sigma_error);
+            _adc_sum_fit_res_mean_weighted_sum += _mean * _weight_mean;
+            _adc_sum_fit_res_sigma_weighted_sum += _sigma * _weight_sigma;
+            _adc_sum_fit_res_mean_weighted_sum_weight += _weight_mean;
+            _adc_sum_fit_res_sigma_weighted_sum_weight += _weight_sigma;
+        }
+
+        _adc_sum_fit_res_mean_weighted = _adc_sum_fit_res_mean_weighted_sum / _adc_sum_fit_res_mean_weighted_sum_weight;
+        _adc_sum_fit_res_sigma_weighted = _adc_sum_fit_res_sigma_weighted_sum / _adc_sum_fit_res_sigma_weighted_sum_weight;
+
+        // * calculate the systematic error
+        double _adc_sum_fit_res_mean_err_sys_sum = 0;
+        double _adc_sum_fit_res_sigma_err_sys_sum = 0;
+        for (int _fit_index = 0; _fit_index < _adc_sum_fit_res_mean.size(); _fit_index++) {
+            double _mean = _adc_sum_fit_res_mean[_fit_index];
+            double _sigma = _adc_sum_fit_res_sigma[_fit_index];
+            double _mean_error = _adc_sum_fit_res_mean_error[_fit_index];
+            double _sigma_error = _adc_sum_fit_res_sigma_error[_fit_index];
+            _adc_sum_fit_res_mean_err_sys_sum += (_mean - _adc_sum_fit_res_mean_weighted) * (_mean - _adc_sum_fit_res_mean_weighted);
+            _adc_sum_fit_res_sigma_err_sys_sum += (_sigma - _adc_sum_fit_res_sigma_weighted) * (_sigma - _adc_sum_fit_res_sigma_weighted);
+        }
+        _adc_sum_fit_res_mean_err_sys = std::sqrt(_adc_sum_fit_res_mean_err_sys_sum / (_adc_sum_fit_res_mean.size() - 1));
+        _adc_sum_fit_res_sigma_err_sys = std::sqrt(_adc_sum_fit_res_sigma_err_sys_sum / (_adc_sum_fit_res_sigma.size() - 1));
+
+        // * calculate the statistical error
+        double _adc_sum_fit_res_mean_err_stat_sum = 0;
+        double _adc_sum_fit_res_sigma_err_stat_sum = 0;
+        for (int _fit_index = 0; _fit_index < _adc_sum_fit_res_mean.size(); _fit_index++) {
+            double _mean = _adc_sum_fit_res_mean[_fit_index];
+            double _sigma = _adc_sum_fit_res_sigma[_fit_index];
+            double _mean_error = _adc_sum_fit_res_mean_error[_fit_index];
+            double _sigma_error = _adc_sum_fit_res_sigma_error[_fit_index];
+            _adc_sum_fit_res_mean_err_stat_sum += 1.0 / (_mean_error * _mean_error);
+            _adc_sum_fit_res_sigma_err_stat_sum += 1.0 / (_sigma_error * _sigma_error);
+        }
+        _adc_sum_fit_res_mean_err_stat = 1.0 / std::sqrt(_adc_sum_fit_res_mean_err_stat_sum);
+        _adc_sum_fit_res_sigma_err_stat = 1.0 / std::sqrt(_adc_sum_fit_res_sigma_err_stat_sum);
+
+        // fixed length string
+        std::string _adc_sum_mean_str = std::to_string(_adc_sum_fit_res_mean_weighted).substr(0, 5);
+        std::string _adc_sum_sigma_str = std::to_string(_adc_sum_fit_res_sigma_weighted).substr(0, 4);
+        std::string _adc_sum_mean_err_stat_str = std::to_string(_adc_sum_fit_res_mean_err_stat).substr(0, 4);
+        std::string _adc_sum_sigma_err_stat_str = std::to_string(_adc_sum_fit_res_sigma_err_stat).substr(0, 4);
+        std::string _adc_sum_mean_err_sys_str = std::to_string(_adc_sum_fit_res_mean_err_sys).substr(0, 5);
+        std::string _adc_sum_sigma_err_sys_str = std::to_string(_adc_sum_fit_res_sigma_err_sys).substr(0, 5);
+        std::string _adc_sum_beam_energy_str;
+        if (int(config_beam_energies[_run_index]) < 100) {
+            _adc_sum_beam_energy_str = " " + std::to_string(int(config_beam_energies[_run_index]));
+        } else {
+            _adc_sum_beam_energy_str = std::to_string(int(config_beam_energies[_run_index]));
+        }
+        std::string _adc_sum_beam_energy_dummy_str = "     ";
+        for (int _beam_energy_index = 0; _beam_energy_index < 3 - _adc_sum_beam_energy_str.size(); _beam_energy_index++) {
+            _adc_sum_beam_energy_dummy_str += " ";
+        }
+        // * write the results to legend
+        std::string _adc_sum_fit_res_mean_str = (_adc_sum_beam_energy_str + "GeV mu: " + _adc_sum_mean_str + " #pm " + _adc_sum_mean_err_stat_str + "(stat) #pm " + _adc_sum_mean_err_sys_str + "(sys)").c_str();
+        std::string _adc_sum_fit_res_sigma_str = (_adc_sum_beam_energy_dummy_str + "sigma: " + _adc_sum_sigma_str + " #pm " + _adc_sum_sigma_err_stat_str + "(stat) #pm " + _adc_sum_sigma_err_sys_str + "(sys)").c_str();
+        auto dummy_hist = new TH1D("dummy_hist", "dummy_hist", 1, 0, 1);
+        // no line for the dummy hist
+        dummy_hist->SetLineColor(kWhite);
+        adc_sum_legend->AddEntry(_adc_sum_hist1d, _adc_sum_fit_res_mean_str.c_str(), "l");
+        adc_sum_legend->AddEntry(dummy_hist, _adc_sum_fit_res_sigma_str.c_str(), "l");
+        
+        // adc_sum_legend->AddEntry(_adc_sum_hist1d, (std::to_string(int(config_beam_energies[_run_index])) + " GeV " + config_beam_particles[_run_index]).c_str(), "l");
+    }
+    adc_sum_legend->Draw();
+    auto adc_sum_latex = new TLatex();
+    const double _text_line_height = 0.04;
+    const double _text_line_start = 0.85;
+    const double _text_line_left = 0.13;
+    adc_sum_latex->SetNDC();
+    adc_sum_latex->SetTextSize(0.04);
+    adc_sum_latex->SetTextFont(62);
+    adc_sum_latex->DrawLatex(_text_line_left, _text_line_start, (config_plot_info[0].c_str()));
+    adc_sum_latex->SetTextSize(0.03);
+    adc_sum_latex->SetTextFont(42);
+    for (int _info_index = 1; _info_index < config_plot_info.size(); _info_index++) {
+        adc_sum_latex->DrawLatex(_text_line_left, _text_line_start - _info_index * _text_line_height, (config_plot_info[_info_index].c_str()));
+    }
+    if (enable_working_in_progress){
+        adc_sum_latex->SetTextFont(52);
+        adc_sum_latex->SetTextColor(kGray+3);
+        adc_sum_latex->DrawLatex(_text_line_left, _text_line_start - (config_plot_info.size()) * _text_line_height, "Work in progress");
+    }
+    
+    output_root->cd();
+    adc_sum_hist1d_canvas->Print(pdf_file_name.c_str());
+    adc_sum_hist1d_canvas->Write();
+
+    TCanvas* dummy_canvas = new TCanvas("dummy_canvas", "dummy_canvas", 800, 600);
+    dummy_canvas->SaveAs((pdf_file_name + ")").c_str());
+    dummy_canvas->Close();
 
     output_root->Close();
     LOG(INFO) << "Output file " << opts.output_file << " has been saved.";

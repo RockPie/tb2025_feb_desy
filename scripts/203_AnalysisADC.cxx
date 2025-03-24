@@ -3,7 +3,7 @@
 INITIALIZE_EASYLOGGINGPP
 
 int main(int argc, char **argv) {
-    ScriptOptions opts = parse_arguments_single_json(argc, argv, "1.0");
+    ScriptOptions opts = parse_arguments_single_json(argc, argv, "1.1");
 
     // * --- Read the configuration file ------------------------------------------------
     // * --------------------------------------------------------------------------------
@@ -57,6 +57,8 @@ int main(int argc, char **argv) {
 
     const double sample_time = 25.0; // unit: ns
     const double phase_shift_time = 25.0 / 16.0; // unit: ns
+
+    const double beam_energy_relative_error = 0.05;
 
     const double adc_sum_hist_min = double(plot_sum_x_min);
     const double adc_sum_hist_max = double(plot_sum_x_max);
@@ -436,7 +438,7 @@ int main(int argc, char **argv) {
                     for (int _sample_index = 0; _sample_index < machine_gun_samples; _sample_index++) {
                         auto _val1 = _val1_list[_channel_index + _sample_index * FPGA_CHANNEL_NUMBER];
                         auto _val2 = _val2_list[_channel_index + _sample_index * FPGA_CHANNEL_NUMBER];
-                        if (_val1 > 0) {
+                        if (_val1 > 0){
                             if (_val1_max == -1) {
                                 _val1_max = _val1;
                                 _val1_max_index = _sample_index;
@@ -516,8 +518,8 @@ int main(int argc, char **argv) {
                         _channel_adc_value = _val0_max - _pedestal;
                         _run_adc_sum += _channel_adc_value;
                     } else if (_pedestal_peak_counts == 2){
-                        auto _pedestal1_dist = std::abs(_val0_max - _pedestal_mean1);
-                        auto _pedestal2_dist = std::abs(_val0_max - _pedestal_mean2);
+                        auto _pedestal1_dist = std::abs(_pedestal_event - _pedestal_mean1);
+                        auto _pedestal2_dist = std::abs(_pedestal_event - _pedestal_mean2);
                         auto _pedestal = 0;
                         if (_pedestal1_dist < _pedestal2_dist){
                             _pedestal = _pedestal_mean1;
@@ -536,7 +538,16 @@ int main(int argc, char **argv) {
         _input_root->Close();
     }
 
-    std::vector <EColor> color_list = {kBlack, kRed, kBlue, kGreen, kMagenta, kCyan, kYellow, kOrange, kViolet, kTeal, kAzure, kGray, kPink, kSpring, kBrown};
+    TColor *softBlue   = new TColor(4001, 0.35, 0.55, 0.75);  // Steel Blue
+    TColor *softRed    = new TColor(4002, 0.75, 0.35, 0.35);  // Soft Coral
+    TColor *softGreen  = new TColor(4003, 0.45, 0.65, 0.45);  // Sage Green
+    TColor *softPurple = new TColor(4004, 0.55, 0.45, 0.65);  // Lavender Gray
+    TColor *softTeal   = new TColor(4005, 0.35, 0.65, 0.65);  // Light Teal
+    TColor *softOrange = new TColor(4006, 0.85, 0.55, 0.35);  // Warm Orange
+    TColor *softBrown  = new TColor(4007, 0.65, 0.55, 0.45);  // Sand Brown
+    TColor *softGray   = new TColor(4008, 0.55, 0.55, 0.55);  // Mid Gray
+    TColor *softOlive  = new TColor(4009, 0.65, 0.65, 0.45);  // Olive Green
+    std::vector <Color_t> color_list = {kBlack, 4001, 4002, 4003, 4004, 4005, 4006, 4007, 4008, 4009};
     std::string pdf_file_name = opts.output_file.substr(0, opts.output_file.find_last_of('.')) + ".pdf";
 
     // * --- Save the histograms --------------------------------------------------------
@@ -625,6 +636,13 @@ int main(int argc, char **argv) {
     adc_sum_legend->SetTextSize(0.02);
     adc_sum_legend->SetTextFont(102);
 
+    std::vector <double> adc_sum_fit_mu_list;
+    std::vector <double> adc_sum_fit_sigma_list;
+    std::vector <double> adc_sum_fit_mu_error_list;
+    std::vector <double> adc_sum_fit_sigma_error_list;
+    std::vector <double> adc_sum_beam_energy_list;
+    std::vector <double> adc_sum_beam_energy_error_list;
+
     for (int _run_index = 0; _run_index < config_run_numbers.size(); _run_index++) {
         auto _adc_sum_hist1d = run_adc_sum_hist1d[_run_index];
         _adc_sum_hist1d->SetMaximum(run_adc_sum_hist_max * 1.3);
@@ -639,7 +657,7 @@ int main(int argc, char **argv) {
         }
         // * do the gaussian fit
         std::vector <double> _adc_sum_fit_range = {1.4, 1.6, 1.8, 2.0, 2.2, 2.4, 2.6}; // unit: sigma
-        std::vector <double> _adc_sum_fit_offsets = {-0.5, 0, 0.5}; // unit: sigma
+        std::vector <double> _adc_sum_fit_offsets = {-1.0, -0.5, 0.0, 0.5, 1.0};
         double _adc_sum_fit_range_min = 0;
         double _adc_sum_fit_range_max = 0;
         double _adc_sum_fit_offset_min = 0;
@@ -677,17 +695,19 @@ int main(int argc, char **argv) {
         _adc_sum_hist1d->Fit(_adc_sum_fit_function, "RQN");
         double _adc_sum_fit_mu = _adc_sum_fit_function->GetParameter(1);
         double _adc_sum_fit_sigma = _adc_sum_fit_function->GetParameter(2);
-        // * draw the mu+-2sigma range
-        double _fit_range_min = _adc_sum_fit_mu - _adc_sum_fit_range_max * _adc_sum_fit_sigma + _adc_sum_fit_offset_min * _adc_sum_fit_sigma;
-        double _fit_range_max = _adc_sum_fit_mu + _adc_sum_fit_range_max * _adc_sum_fit_sigma + _adc_sum_fit_offset_max * _adc_sum_fit_sigma;
-        // TLine *_fit_range_min_line = new TLine(_fit_range_min, 0, _fit_range_min, run_adc_sum_hist_max * 1.3);
-        // TLine *_fit_range_max_line = new TLine(_fit_range_max, 0, _fit_range_max, run_adc_sum_hist_max * 1.3);
-        // _fit_range_min_line->SetLineColor(color_list[_run_index % color_list.size()]);
-        // _fit_range_max_line->SetLineColor(color_list[_run_index % color_list.size()]);
-        // _fit_range_min_line->SetLineStyle(2);
-        // _fit_range_max_line->SetLineStyle(2);
-        // _fit_range_min_line->Draw("SAME");
-        // _fit_range_max_line->Draw("SAME");
+
+        // * do the fitting for pedestal peak
+        TF1 *_adc_sum_pede_fit_function = new TF1("adc_sum_pede_fit_function", "gaus", adc_sum_hist_min, adc_sum_hist_min + (adc_sum_hist_max - adc_sum_hist_min) * 0.06);
+        // set parameter range
+        _adc_sum_pede_fit_function->SetParLimits(1, adc_sum_hist_min, adc_sum_hist_min + (adc_sum_hist_max - adc_sum_hist_min) * 0.1);
+        _adc_sum_hist1d->Fit(_adc_sum_pede_fit_function, "RQN");
+        double _adc_sum_pede_mu = _adc_sum_pede_fit_function->GetParameter(1);
+        double _adc_sum_pede_sigma = _adc_sum_pede_fit_function->GetParameter(2);
+        // draw the pede mu
+        TLine *_adc_sum_pede_mu_line = new TLine(_adc_sum_pede_mu, 0, _adc_sum_pede_mu, run_adc_sum_hist_max * 1.3);
+        _adc_sum_pede_mu_line->SetLineColor(color_list[_run_index % color_list.size()]);
+        _adc_sum_pede_mu_line->SetLineStyle(2);
+        _adc_sum_pede_mu_line->Draw("SAME");
 
         std::vector <double> _adc_sum_fit_res_mean;
         std::vector <double> _adc_sum_fit_res_sigma;
@@ -761,6 +781,9 @@ int main(int argc, char **argv) {
         _adc_sum_fit_res_mean_err_sys = std::sqrt(_adc_sum_fit_res_mean_err_sys_sum / (_adc_sum_fit_res_mean.size() - 1));
         _adc_sum_fit_res_sigma_err_sys = std::sqrt(_adc_sum_fit_res_sigma_err_sys_sum / (_adc_sum_fit_res_sigma.size() - 1));
 
+        // subtract the pedestal
+        // _adc_sum_fit_res_mean_weighted -= _adc_sum_pede_mu;
+
         // * calculate the statistical error
         double _adc_sum_fit_res_mean_err_stat_sum = 0;
         double _adc_sum_fit_res_sigma_err_stat_sum = 0;
@@ -792,6 +815,14 @@ int main(int argc, char **argv) {
         for (int _beam_energy_index = 0; _beam_energy_index < 3 - _adc_sum_beam_energy_str.size(); _beam_energy_index++) {
             _adc_sum_beam_energy_dummy_str += " ";
         }
+
+        adc_sum_fit_mu_list.push_back(_adc_sum_fit_res_mean_weighted);
+        adc_sum_fit_sigma_list.push_back(_adc_sum_fit_res_sigma_weighted);
+        adc_sum_fit_mu_error_list.push_back(sqrt(_adc_sum_fit_res_mean_err_stat * _adc_sum_fit_res_mean_err_stat + _adc_sum_fit_res_mean_err_sys * _adc_sum_fit_res_mean_err_sys));
+        adc_sum_fit_sigma_error_list.push_back(sqrt(_adc_sum_fit_res_sigma_err_stat * _adc_sum_fit_res_sigma_err_stat + _adc_sum_fit_res_sigma_err_sys * _adc_sum_fit_res_sigma_err_sys));
+        adc_sum_beam_energy_list.push_back(config_beam_energies[_run_index]);
+        adc_sum_beam_energy_error_list.push_back(config_beam_energies[_run_index] * beam_energy_relative_error);
+
         // * write the results to legend
         std::string _adc_sum_fit_res_mean_str = (_adc_sum_beam_energy_str + "GeV mu: " + _adc_sum_mean_str + " #pm " + _adc_sum_mean_err_stat_str + "(stat) #pm " + _adc_sum_mean_err_sys_str + "(sys)").c_str();
         std::string _adc_sum_fit_res_sigma_str = (_adc_sum_beam_energy_dummy_str + "sigma: " + _adc_sum_sigma_str + " #pm " + _adc_sum_sigma_err_stat_str + "(stat) #pm " + _adc_sum_sigma_err_sys_str + "(sys)").c_str();
@@ -827,6 +858,188 @@ int main(int argc, char **argv) {
     adc_sum_hist1d_canvas->Print(pdf_file_name.c_str());
     adc_sum_hist1d_canvas->Write();
 
+    // * --- Draw linearity plot --------------------------------------------------------
+    // * --------------------------------------------------------------------------------
+    auto linearity_canvas = new TCanvas("linearity_canvas", "linearity_canvas", 800, 600);
+    linearity_canvas->SetMargin(0.15, 0.1, 0.15, 0.1);
+    auto linearity_dummy_graph = new TGraphErrors(1); // only for setting the axis
+    linearity_dummy_graph->SetTitle("Linearity of ADC Sum");
+    linearity_dummy_graph->GetXaxis()->SetTitle("Beam Energy [GeV]");
+    linearity_dummy_graph->GetYaxis()->SetTitle("ADC Sum Mean");
+    linearity_dummy_graph->GetXaxis()->SetRangeUser(0, 400);
+    linearity_dummy_graph->GetXaxis()->SetLimits(0, 400);
+    linearity_dummy_graph->GetYaxis()->SetRangeUser(0, adc_sum_hist_max);
+    linearity_dummy_graph->GetYaxis()->SetLimits(0, adc_sum_hist_max);  
+
+    linearity_dummy_graph->Draw("AP");
+
+    auto linearity_graph = new TGraphErrors(adc_sum_beam_energy_list.size(), &adc_sum_beam_energy_list[0], &adc_sum_fit_mu_list[0], &adc_sum_beam_energy_error_list[0], &adc_sum_fit_mu_error_list[0]);
+    linearity_graph->SetMarkerStyle(20);
+    linearity_graph->SetMarkerSize(0.5);
+    linearity_graph->SetLineWidth(2);
+
+    auto linearity_fit_function = new TF1("linearity_fit_function", "[0]*x + [1]", 0, 400);
+    linearity_fit_function->SetParameter(0, 400.0/adc_sum_hist_max);
+    linearity_fit_function->SetParameter(1, 0);
+    linearity_graph->Fit(linearity_fit_function, "RQN");
+    linearity_graph->Draw("PE SAME");
+
+    linearity_fit_function->SetLineColor(kCyan+3);
+    linearity_fit_function->SetLineStyle(2);
+    linearity_fit_function->Draw("SAME");
+
+    auto linearity_fit_confidence_band = new TH1F("linearity_fit_confidence_band", "linearity_fit_confidence_band", 100, 0, 400);
+    TVirtualFitter::GetFitter()->GetConfidenceIntervals(linearity_fit_confidence_band, 0.68);
+    linearity_fit_confidence_band->SetFillColorAlpha(kCyan+3, 0.5);
+    linearity_fit_confidence_band->Draw("E3 SAME");
+
+    auto linearity_legend = new TLegend(0.5, 0.7, 0.89, 0.89);
+    linearity_legend->SetBorderSize(0);
+    linearity_legend->SetFillStyle(0);
+    linearity_legend->SetTextSize(0.02);
+    linearity_legend->SetTextFont(102);
+
+    double _linearity_fit_slope = linearity_fit_function->GetParameter(0);
+    double _linearity_fit_slope_error = linearity_fit_function->GetParError(0);
+    double _linearity_fit_intercept = linearity_fit_function->GetParameter(1);
+    double _linearity_fit_intercept_error = linearity_fit_function->GetParError(1);
+    double _linearity_fit_chi2 = linearity_fit_function->GetChisquare();
+    double _linearity_fit_ndf = linearity_fit_function->GetNDF();
+
+    auto linearity_dummy_hist = new TH1D("linearity_dummy_hist", "linearity_dummy_hist", 1, 0, 1);
+    linearity_dummy_hist->SetLineColor(kWhite);
+    linearity_legend->AddEntry(linearity_graph, "Gaussian Fit Mean", "epl");
+    linearity_legend->AddEntry(linearity_fit_function, ("Fit: slope     = " + std::to_string(_linearity_fit_slope).substr(0,6) + " #pm " + std::to_string(_linearity_fit_slope_error).substr(0,3)).c_str(), "l");
+    linearity_legend->AddEntry(linearity_dummy_hist, ("     intercept = " + std::to_string(_linearity_fit_intercept).substr(0,6) + " #pm " + std::to_string(_linearity_fit_intercept_error).substr(0,3)).c_str(), "l");
+    linearity_legend->AddEntry(linearity_dummy_hist, ("     #chi^{2}/NDF     = " + std::to_string(_linearity_fit_chi2).substr(0,4) + "/" + std::to_string(int(_linearity_fit_ndf))).c_str(), "l");
+    
+    linearity_legend->Draw();
+
+    auto linearity_latex = new TLatex();
+    linearity_latex->SetNDC();
+    linearity_latex->SetTextSize(0.04);
+    linearity_latex->SetTextFont(62);
+    linearity_latex->DrawLatex(_text_line_left+0.05, _text_line_start, (config_plot_info[0].c_str()));
+    linearity_latex->SetTextSize(0.03);
+    linearity_latex->SetTextFont(42);
+    for (int _info_index = 1; _info_index < config_plot_info.size(); _info_index++) {
+        linearity_latex->DrawLatex(_text_line_left+0.05, _text_line_start - _info_index * _text_line_height, (config_plot_info[_info_index].c_str()));
+    }
+    if (enable_working_in_progress){
+        linearity_latex->SetTextFont(52);
+        linearity_latex->SetTextColor(kGray+3);
+        linearity_latex->DrawLatex(_text_line_left+0.05, _text_line_start - (config_plot_info.size()) * _text_line_height, "Work in progress");
+    }
+
+    linearity_canvas->Print(pdf_file_name.c_str());
+    linearity_canvas->Write();
+
+    // * --- Draw resolution plot --------------------------------------------------------
+    // * --------------------------------------------------------------------------------
+    auto resolution_canvas = new TCanvas("resolution_canvas", "resolution_canvas", 800, 600);
+    auto resolution_dummy_graph = new TGraphErrors(1); // only for setting the axis
+    resolution_dummy_graph->SetTitle("Resolution of ADC Sum");
+    resolution_dummy_graph->GetXaxis()->SetTitle("Beam Energy [GeV]");
+    resolution_dummy_graph->GetYaxis()->SetTitle("#sigma_{E}/E");
+    resolution_dummy_graph->GetXaxis()->SetRangeUser(0, 400);
+    resolution_dummy_graph->GetYaxis()->SetRangeUser(0.1, 0.4);
+    resolution_dummy_graph->GetYaxis()->SetLimits(0.1, 0.4);
+    resolution_dummy_graph->GetXaxis()->SetLimits(0, 400);
+    resolution_dummy_graph->Draw("AP");
+
+    std::vector <double> adc_sum_fit_sigmaE_E_list;
+    std::vector <double> adc_sum_fit_sigmaE_E_error_list;
+    std::vector <double> reconstructed_beam_energy_list;
+    std::vector <double> reconstructed_beam_energy_list_error;
+    for (int _beam_energy_index = 0; _beam_energy_index < adc_sum_beam_energy_list.size(); _beam_energy_index++) {
+        double _beam_energy = adc_sum_beam_energy_list[_beam_energy_index];
+        double _adc_sum_sigma = adc_sum_fit_sigma_list[_beam_energy_index];
+        double _adc_sum_sigma_error = adc_sum_fit_sigma_error_list[_beam_energy_index];
+        double _adc_sum_mu = adc_sum_fit_mu_list[_beam_energy_index];
+        double _adc_sum_mu_error = adc_sum_fit_mu_error_list[_beam_energy_index];
+        double _adc_sum_sigmaE_E = _adc_sum_sigma / _adc_sum_mu;
+        double _adc_sum_sigmaE_E_error = _adc_sum_sigmaE_E * std::sqrt((_adc_sum_sigma_error / _adc_sum_sigma) * (_adc_sum_sigma_error / _adc_sum_sigma) + (_adc_sum_mu_error / _adc_sum_mu) * (_adc_sum_mu_error / _adc_sum_mu));
+        adc_sum_fit_sigmaE_E_list.push_back(_adc_sum_sigmaE_E);
+        adc_sum_fit_sigmaE_E_error_list.push_back(_adc_sum_sigmaE_E_error);
+        double _reconstructed_beam_energy = (_adc_sum_mu - _linearity_fit_intercept)/_linearity_fit_slope;
+        double _reconstructed_beam_energy_error = _reconstructed_beam_energy * beam_energy_relative_error;
+        reconstructed_beam_energy_list.push_back(_reconstructed_beam_energy);
+        reconstructed_beam_energy_list_error.push_back(_reconstructed_beam_energy_error);
+    }
+    auto resolution_graph = new TGraphErrors(reconstructed_beam_energy_list.size(), &reconstructed_beam_energy_list[0], &adc_sum_fit_sigmaE_E_list[0], &reconstructed_beam_energy_list_error[0], &adc_sum_fit_sigmaE_E_error_list[0]);
+    resolution_graph->SetTitle("Resolution of ADC Sum");
+    resolution_graph->GetXaxis()->SetTitle("Beam Energy [GeV]");
+    resolution_graph->GetXaxis()->SetRangeUser(0, 400);
+    resolution_graph->GetYaxis()->SetTitle("#sigma_{E}/E");
+    resolution_graph->GetYaxis()->SetRangeUser(0.1, 0.4);
+    resolution_graph->SetMarkerStyle(20);
+    resolution_graph->SetMarkerSize(0.5);
+    resolution_graph->SetLineWidth(2);
+    
+    auto resolution_fit_function = new TF1("resolution_fit_function", "[0]/sqrt(x) + [1]", 0, 400);
+    resolution_fit_function->SetParameter(0, 0.1);
+    resolution_fit_function->SetParameter(1, 0.01);
+    resolution_graph->Fit(resolution_fit_function, "RQN");
+    resolution_graph->Draw("PE SAME");
+
+    resolution_fit_function->SetLineColor(kRed);
+    resolution_fit_function->SetLineStyle(2);
+    resolution_fit_function->Draw("SAME");
+
+    auto resolution_fit_confidence_band = new TH1F("resolution_fit_confidence_band", "resolution_fit_confidence_band", 100, 0, 400);
+    TVirtualFitter *fitter = TVirtualFitter::GetFitter();
+    if (fitter) {
+        fitter->GetConfidenceIntervals(resolution_fit_confidence_band, 0.68);
+    } else {
+        LOG(WARNING) << "Fitter is not initialized. Confidence intervals will not be drawn.";
+    }
+    resolution_fit_confidence_band->SetFillColorAlpha(kRed, 0.3);
+    resolution_fit_confidence_band->SetLineColor(kRed);
+    resolution_fit_confidence_band->SetLineStyle(2);
+    resolution_fit_confidence_band->Draw("e3 SAME");
+
+    auto resolution_legend = new TLegend(0.5, 0.7, 0.89, 0.89);
+    resolution_legend->SetBorderSize(0);
+    resolution_legend->SetFillStyle(0);
+    resolution_legend->SetTextSize(0.02);
+    resolution_legend->SetTextFont(102);
+
+    double _resolution_fit_a = resolution_fit_function->GetParameter(0);
+    double _resolution_fit_a_error = resolution_fit_function->GetParError(0);
+    double _resolution_fit_b = resolution_fit_function->GetParameter(1);
+    double _resolution_fit_b_error = resolution_fit_function->GetParError(1);
+    double _resolution_fit_chi2 = resolution_fit_function->GetChisquare();
+    double _resolution_fit_ndf = resolution_fit_function->GetNDF();
+
+    auto resolution_dummy_hist = new TH1D("resolution_dummy_hist", "resolution_dummy_hist", 1, 0, 1);
+    resolution_dummy_hist->SetLineColor(kWhite);
+    resolution_legend->AddEntry(resolution_graph, "Gaussian Fit Resolution", "epl");
+    resolution_legend->AddEntry(resolution_fit_function, ("#sigma_{E}/E   = #frac{" + std::to_string(_resolution_fit_a).substr(0,4) + " #pm " + std::to_string(_resolution_fit_a_error).substr(0,3) + "}{#sqrt{E}} #oplus (" + std::to_string(_resolution_fit_b).substr(0,4) + " #pm " + std::to_string(_resolution_fit_b_error).substr(0,4) + ")").c_str(), "l");
+    resolution_legend->AddEntry(resolution_dummy_hist, ("#chi^{2}/NDF = " + std::to_string(_resolution_fit_chi2).substr(0,4) + "/" + std::to_string(int(_resolution_fit_ndf))).c_str(), "l");
+    resolution_legend->Draw();
+
+    auto resolution_latex = new TLatex();
+    resolution_latex->SetNDC();
+    resolution_latex->SetTextSize(0.04);
+    resolution_latex->SetTextFont(62);
+    resolution_latex->DrawLatex(_text_line_left, _text_line_start, (config_plot_info[0].c_str()));
+    resolution_latex->SetTextSize(0.03);
+    resolution_latex->SetTextFont(42);
+    for (int _info_index = 1; _info_index < config_plot_info.size(); _info_index++) {
+        resolution_latex->DrawLatex(_text_line_left, _text_line_start - _info_index * _text_line_height, (config_plot_info[_info_index].c_str()));
+    }
+
+    if (enable_working_in_progress){
+        resolution_latex->SetTextFont(52);
+        resolution_latex->SetTextColor(kGray+3);
+        resolution_latex->DrawLatex(_text_line_left, _text_line_start - (config_plot_info.size()) * _text_line_height, "Work in progress");
+    }
+
+    resolution_canvas->Print(pdf_file_name.c_str());
+    resolution_canvas->Write();
+
+    // * --- Close the files ------------------------------------------------------------
+    // * --------------------------------------------------------------------------------
     TCanvas* dummy_canvas = new TCanvas("dummy_canvas", "dummy_canvas", 800, 600);
     dummy_canvas->SaveAs((pdf_file_name + ")").c_str());
     dummy_canvas->Close();

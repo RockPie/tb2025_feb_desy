@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <string>
+#include <regex>
 
 #include "TCanvas.h"
 #include "TVectorD.h"
@@ -22,6 +23,11 @@
 #include "TApplication.h"
 #include "TGaxis.h"
 #include "TPaveText.h"
+#include "TFrame.h"
+#include "TVirtualFitter.h"
+
+#include <ROOT/RDataFrame.hxx>
+#include <ROOT/TThreadExecutor.hxx>
 
 
 #include "easylogging++.h"
@@ -47,14 +53,19 @@ struct ScriptOptions {
     int n_events;
     bool verbose;
     bool focal;
+    bool timewalk;
     std::string script_name;
     std::string script_version;
     std::string pedestal_file;
+    std::string csv_file;
+    std::string timewalk_file;
 };
 
 ScriptOptions parse_arguments_single_root(int argc, char **argv, const std::string& version = "0.1");
 
 ScriptOptions parse_arguments_single_json(int argc, char **argv, const std::string& version = "0.1");
+
+ScriptOptions parse_arguments_single_root_single_csv(int argc, char **argv, const std::string& version = "0.1");
 
 int get_valid_fpga_channel(int fpga_channel);
 int get_total_fpga_channel(int fpga_channel);

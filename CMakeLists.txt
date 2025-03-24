@@ -14,6 +14,9 @@ find_package(ROOT REQUIRED COMPONENTS
     Tree
     Gpad    
     Hist
+    Thread
+    MathCore
+    ROOTDataFrame 
 )
 
 include_directories(${ROOT_INCLUDE_DIRS})
@@ -45,6 +48,14 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(json)
 
+# Fetch CSV for Modern C++
+FetchContent_Declare(
+    csv_parser
+    GIT_REPOSITORY https://github.com/vincentlaucsb/csv-parser.git
+    GIT_TAG        2.1.3  # latest stable release, adjust as needed
+)
+FetchContent_MakeAvailable(csv_parser)
+
 # Include easylogging++ headers
 include_directories(${easyloggingpp_SOURCE_DIR}/src)
 
@@ -60,7 +71,8 @@ target_include_directories(H2GCROC_Common PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${easyloggingpp_SOURCE_DIR}/src
     ${ROOT_INCLUDE_DIRS}
-    ${json_SOURCE_DIR}/include  # Include JSON headers
+    ${json_SOURCE_DIR}/include
+    ${csv_parser_SOURCE_DIR}/single_include
 )
 
 target_link_libraries(H2GCROC_Common PUBLIC
@@ -68,6 +80,7 @@ target_link_libraries(H2GCROC_Common PUBLIC
     argparse
     nlohmann_json::nlohmann_json  # Link JSON library
     ${ROOT_LIBRARIES}
+    ROOT::ROOTDataFrame
 )
 
 # Find all script executables
@@ -80,14 +93,15 @@ foreach(script ${scripts})
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${easyloggingpp_SOURCE_DIR}/src
         ${json_SOURCE_DIR}/include
+        ${csv_parser_SOURCE_DIR}/single_include
     )
 
-    # Link against your common code (NEW)
     target_link_libraries(${script_name}
         H2GCROC_Common
         easyloggingpp
         argparse
         nlohmann_json::nlohmann_json
         ${ROOT_LIBRARIES}
+        ROOT::ROOTDataFrame
     )
 endforeach(script)

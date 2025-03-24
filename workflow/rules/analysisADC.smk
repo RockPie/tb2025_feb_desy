@@ -87,3 +87,36 @@ rule AnalysisADC_EEEMCal_all:
 rule AnalysisADC_FoCal_all:
     input:
         expand("dump/203_AnalysisADC/FoCal/{sample}.root", sample=analysis_adc_samples_focal)
+
+rule TemplateFit_FoCal:
+    input:
+        script="build/205_TemplateFit",
+        inputfile="dump/102_EventMatch/FoCal/{sample}_matched.root",
+        csvfile="data/SPS_2024/config/PhaseScan_2V5_20250207_152421_Chn77.csv",
+        timewalkfile="dump/204_TimeWalk/FoCal/{sample}_timewalk.json"
+    output:
+        rootfile="dump/205_TemplateFit/FoCal/{sample}_fit.root",
+        jsonfile="dump/205_TemplateFit/FoCal/{sample}_fit.json"
+    # number of CPU cores to use
+    threads: 16
+    params:
+        event = lambda wildcards: config.get("event", -1)
+    log:
+        "logs/205_TemplateFit/FoCal/{sample}.log"
+    shell:
+        "{input.script} -f {input.inputfile} -o {output.rootfile} -c {input.csvfile} -e {params.event} --focal -t {input.timewalkfile} &> {log}"
+
+rule Timewalk_FoCal:
+    input:
+        script="build/204_TimeWalk",
+        inputfile="dump/102_EventMatch/FoCal/{sample}_matched.root",
+        csvfile="data/SPS_2024/config/PhaseScan_2V5_20250207_152421_Chn77.csv"
+    output:
+        rootfile="dump/204_TimeWalk/FoCal/{sample}_timewalk.root",
+        jsonfile="dump/204_TimeWalk/FoCal/{sample}_timewalk.json"
+    params:
+        event_timewalk = lambda wildcards: config.get("event_timewalk", -1)
+    log:
+        "logs/204_TimeWalk/FoCal/{sample}_timewalk.log"
+    shell:
+        "{input.script} -f {input.inputfile} -o {output.rootfile} -c {input.csvfile} -e {params.event_timewalk} --focal --timewalk &> {log}"

@@ -159,6 +159,90 @@ ScriptOptions parse_arguments_single_json(int argc, char **argv, const std::stri
     return opts;
 }
 
+ScriptOptions parse_arguments_single_root_single_csv(int argc, char **argv, const std::string& version){
+    ScriptOptions opts;
+
+    opts.script_version = version;
+    opts.script_name = argv[0];
+    opts.script_name = opts.script_name.substr(opts.script_name.find_last_of("/\\") + 1);
+    opts.script_name = opts.script_name.substr(0, opts.script_name.find_last_of("."));
+
+    START_EASYLOGGINGPP(argc, argv);
+    set_easylogger();
+
+    argparse::ArgumentParser program(opts.script_name, opts.script_version);
+
+    program.add_argument("-f", "--file").help("Input .root file").required();
+    program.add_argument("-o", "--output").help("Output .root file").required();
+    program.add_argument("-c", "--csv").help("Input .csv file").required();
+    program.add_argument("--focal").help("Use FoCal mapping").default_value(false).implicit_value(true);
+    program.add_argument("-e", "--events").help("Number of events to process").default_value(std::string("-1"));
+    program.add_argument("-v", "--verbose").help("Verbose mode").default_value(false).implicit_value(true);
+    program.add_argument("--timewalk").help("Enable timewalk correction").default_value(false).implicit_value(true);
+    program.add_argument("-t", "--timewalk_file").help("Timewalk correction .json file").default_value(std::string(""));
+
+    try {
+        program.parse_args(argc, argv);
+        opts.input_file = program.get<std::string>("--file");
+        opts.output_file = program.get<std::string>("--output");
+        auto n_events_str = program.get<std::string>("--events");
+        opts.n_events = std::stoi(n_events_str);
+        opts.csv_file = program.get<std::string>("--csv");
+        opts.verbose = program.get<bool>("--verbose");
+        opts.focal = program.get<bool>("--focal");
+        opts.timewalk = program.get<bool>("--timewalk");
+        opts.timewalk_file = program.get<std::string>("--timewalk_file");
+    } catch (const std::runtime_error& err) {
+        LOG(ERROR) << err.what();
+        LOG(INFO) << program;
+        exit(1);
+    }
+
+    if (access(opts.input_file.c_str(), F_OK) == -1) {
+        LOG(ERROR) << "Input file " << opts.input_file << " does not exist!";
+        exit(1);
+    }
+
+    if (opts.input_file.substr(opts.input_file.find_last_of(".") + 1) != "root") {
+        LOG(ERROR) << "Input file " << opts.input_file << " should end with .root!";
+        exit(1);
+    }
+
+    if (opts.output_file.substr(opts.output_file.find_last_of(".") + 1) != "root") {
+        LOG(ERROR) << "Output file " << opts.output_file << " should end with .root!";
+        exit(1);
+    }
+
+    if (opts.csv_file.substr(opts.csv_file.find_last_of(".") + 1) != "csv") {
+        LOG(ERROR) << "CSV file " << opts.csv_file << " should end with .csv!";
+        exit(1);
+    }
+
+    opts.output_folder = opts.output_file.substr(0, opts.output_file.find_last_of("/\\"));
+    if (opts.output_folder.empty()) {
+        opts.output_folder = "./dump/" + opts.script_name;
+    }
+
+    if (access(opts.output_folder.c_str(), F_OK) == -1) {
+        LOG(INFO) << "Creating output folder " << opts.output_folder;
+        if (mkdir(opts.output_folder.c_str(), 0777) == -1) {
+            LOG(ERROR) << "Failed to create output folder " << opts.output_folder;
+            exit(1);
+        }
+    }
+
+    if (access(opts.output_file.c_str(), F_OK) != -1) {
+        LOG(WARNING) << "Output file " << opts.output_file << " already exists!";
+    }
+
+    LOG(INFO) << "Script name: " << opts.script_name;
+    LOG(INFO) << "Input file: " << opts.input_file;
+    LOG(INFO) << "Output file: " << opts.output_file << " in " << opts.output_folder;
+    LOG(INFO) << "Number of events: " << opts.n_events;
+
+    return opts;
+}
+
 int get_valid_fpga_channel(int fpga_channel){
     if (fpga_channel < 0 || fpga_channel >= FPGA_CHANNEL_NUMBER) {
         LOG(ERROR) << "Invalid FPGA channel " << fpga_channel;
@@ -827,8 +911,31 @@ void GlobalChannelPainter::draw_canvas_components(TCanvas* source_canvas, TPad* 
     TList* primitives = source_canvas->GetListOfPrimitives();
     bool is_first = true;
     for (int i = 0; i < primitives->GetSize(); ++i) {
-        TObject* component = primitives->At(i);
-        TObject* component_clone = component->Clone();
+        TObject* component;
+        try {
+            component = primitives->At(i);
+        } catch (const std::exception& e) {
+            LOG(ERROR) << "Exception caught: " << e.what();
+            continue;
+        }
+        if (!component) {
+            LOG(ERROR) << "Component is null!";
+            continue;
+        }
+        TObject* component_clone;
+        try {
+            component_clone = component->Clone();
+        } catch (const std::exception& e) {
+            LOG(ERROR) << "Exception caught: " << e.what();
+            continue;
+        }
+        // TObject* component = primitives->At(i);
+        // TObject* component_clone = component->Clone();
+        if (!component_clone) {
+            LOG(ERROR) << "Component clone is null!";
+            continue;
+        }
+
         if (component_clone->InheritsFrom("TH1")) {
             TH1* hist = (TH1*) component_clone;
             hist->SetStats(0);
@@ -838,9 +945,38 @@ void GlobalChannelPainter::draw_canvas_components(TCanvas* source_canvas, TPad* 
             } else {
                 hist->Draw("same");
             }
+        } else if (component_clone->InheritsFrom("TH2")) {
+            TH2* hist = (TH2*) component_clone;
+            hist->SetStats(0);
+            // auto _draw_option = hist->GetDrawOption();
+            if (is_first) {
+                hist->Draw("colz");
+                is_first = false;
+            } else {
+                hist->Draw("colz same");
+            }
+        } else if (component_clone->InheritsFrom("TGraphErrors")) {
+            TGraphErrors* graph = (TGraphErrors*) component_clone;
+            if (is_first) {
+                graph->Draw("AP");
+                is_first = false;
+            } else {
+                graph->Draw("P same");
+            }
+        } else if (component_clone->InheritsFrom("TGraph")) {
+            TGraph* graph = (TGraph*) component_clone;
+            if (is_first) {
+                graph->Draw("AP");
+                is_first = false;
+            } else {
+                graph->Draw("P same");
+            }
         } else if (component_clone->InheritsFrom("TLine")) {
             TLine* line = (TLine*) component_clone;
             line->Draw();
+        } else if (component_clone->InheritsFrom("TFrame")) {
+            TFrame* frame = (TFrame*) component_clone;
+            frame->Draw();
         } else if (component_clone->InheritsFrom("TBox")) {
             TBox* box = (TBox*) component_clone;
             box->Draw();
@@ -849,11 +985,21 @@ void GlobalChannelPainter::draw_canvas_components(TCanvas* source_canvas, TPad* 
             pave_text->Draw();
         } else if (component_clone->InheritsFrom("TF1")) {
             TF1* func = (TF1*) component_clone;
-            func->Draw("same");
+            if (is_first) {
+                func->Draw();
+                is_first = false;
+            } else {
+                func->Draw("same");
+            }
         } else if (component_clone->InheritsFrom("TLatex")) {
             TLatex* latex = (TLatex*) component_clone;
             latex->Draw();
-        } 
+        } else if (component_clone->InheritsFrom("TLegend")) {
+            TLegend* legend = (TLegend*) component_clone;
+            legend->Draw();
+        } else {
+            LOG(ERROR) << "Unknown object type: " << component_clone->ClassName();
+        }
     }
     target_pad->Update();
 }
@@ -896,6 +1042,7 @@ TCanvas* GlobalChannelPainter::draw_module_channel_canvas(std::vector <TCanvas*>
                 auto _unified_channel = _h2gcroc_board_number * (FPGA_CHANNEL_NUMBER_VALID / 2)  + _h2gcroc_channel_number;
                 auto _channel_index = hists_channel_map[_unified_channel];
                 auto _canvas = canvas_list[_channel_index];
+
                 draw_canvas_components(_canvas, _sub_pad);
             }
             return _module_canvas;

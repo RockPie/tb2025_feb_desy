@@ -5,6 +5,8 @@ INITIALIZE_EASYLOGGINGPP
 int main(int argc, char **argv) {
     ScriptOptions opts = parse_arguments_single_json(argc, argv, "1.1");
 
+    gROOT->SetBatch(kTRUE);
+
     // * --- Read the configuration file ------------------------------------------------
     // * --------------------------------------------------------------------------------
     auto json_file_name = opts.input_file;
@@ -656,7 +658,7 @@ int main(int argc, char **argv) {
             _adc_sum_hist1d->Draw("SAME");
         }
         // * do the gaussian fit
-        std::vector <double> _adc_sum_fit_range = {1.4, 1.6, 1.8, 2.0, 2.2, 2.4, 2.6}; // unit: sigma
+        std::vector <double> _adc_sum_fit_range = {1.6, 1.8, 2.0, 2.2, 2.4, 2.6}; // unit: sigma
         std::vector <double> _adc_sum_fit_offsets = {-1.0, -0.5, 0.0, 0.5, 1.0};
         double _adc_sum_fit_range_min = 0;
         double _adc_sum_fit_range_max = 0;
@@ -891,6 +893,7 @@ int main(int argc, char **argv) {
     auto linearity_fit_confidence_band = new TH1F("linearity_fit_confidence_band", "linearity_fit_confidence_band", 100, 0, 400);
     TVirtualFitter::GetFitter()->GetConfidenceIntervals(linearity_fit_confidence_band, 0.68);
     linearity_fit_confidence_band->SetFillColorAlpha(kCyan+3, 0.5);
+    linearity_fit_confidence_band->SetMarkerColorAlpha(kCyan+3, 0.0);
     linearity_fit_confidence_band->Draw("E3 SAME");
 
     auto linearity_legend = new TLegend(0.5, 0.7, 0.89, 0.89);
@@ -906,12 +909,27 @@ int main(int argc, char **argv) {
     double _linearity_fit_chi2 = linearity_fit_function->GetChisquare();
     double _linearity_fit_ndf = linearity_fit_function->GetNDF();
 
+    double nonlinearity = 0;
+    for (int _beam_energy_index = 0; _beam_energy_index < adc_sum_beam_energy_list.size(); _beam_energy_index++) {
+        double _beam_energy = adc_sum_beam_energy_list[_beam_energy_index];
+        double _adc_sum_mu = adc_sum_fit_mu_list[_beam_energy_index];
+        double _reconstructed_adc_sum_mu = _linearity_fit_slope * _beam_energy + _linearity_fit_intercept;
+        double _nonlinearity = (_adc_sum_mu - _reconstructed_adc_sum_mu) / _reconstructed_adc_sum_mu;
+        if (_nonlinearity > nonlinearity) {
+            nonlinearity = _nonlinearity;
+        }
+    }
+
+    nonlinearity = nonlinearity * 100;
+
+
     auto linearity_dummy_hist = new TH1D("linearity_dummy_hist", "linearity_dummy_hist", 1, 0, 1);
     linearity_dummy_hist->SetLineColor(kWhite);
-    linearity_legend->AddEntry(linearity_graph, "Gaussian Fit Mean", "epl");
+    linearity_legend->AddEntry(linearity_graph, "Gaussian Fit Mean", "ep");
     linearity_legend->AddEntry(linearity_fit_function, ("Fit: slope     = " + std::to_string(_linearity_fit_slope).substr(0,6) + " #pm " + std::to_string(_linearity_fit_slope_error).substr(0,3)).c_str(), "l");
     linearity_legend->AddEntry(linearity_dummy_hist, ("     intercept = " + std::to_string(_linearity_fit_intercept).substr(0,6) + " #pm " + std::to_string(_linearity_fit_intercept_error).substr(0,3)).c_str(), "l");
     linearity_legend->AddEntry(linearity_dummy_hist, ("     #chi^{2}/NDF     = " + std::to_string(_linearity_fit_chi2).substr(0,4) + "/" + std::to_string(int(_linearity_fit_ndf))).c_str(), "l");
+    linearity_legend->AddEntry(linearity_dummy_hist, ("     Nonlinearity = " + std::to_string(nonlinearity).substr(0,4) + "%").c_str(), "l");
     
     linearity_legend->Draw();
 
@@ -939,7 +957,7 @@ int main(int argc, char **argv) {
     auto resolution_canvas = new TCanvas("resolution_canvas", "resolution_canvas", 800, 600);
     auto resolution_dummy_graph = new TGraphErrors(1); // only for setting the axis
     resolution_dummy_graph->SetTitle("Resolution of ADC Sum");
-    resolution_dummy_graph->GetXaxis()->SetTitle("Beam Energy [GeV]");
+    resolution_dummy_graph->GetXaxis()->SetTitle("Reconstructed Beam Energy [GeV]");
     resolution_dummy_graph->GetYaxis()->SetTitle("#sigma_{E}/E");
     resolution_dummy_graph->GetXaxis()->SetRangeUser(0, 400);
     resolution_dummy_graph->GetYaxis()->SetRangeUser(0.1, 0.4);
@@ -966,15 +984,109 @@ int main(int argc, char **argv) {
         reconstructed_beam_energy_list.push_back(_reconstructed_beam_energy);
         reconstructed_beam_energy_list_error.push_back(_reconstructed_beam_energy_error);
     }
+    auto resolution_legend = new TLegend(0.5, 0.65, 0.89, 0.89);
+    resolution_legend->SetBorderSize(0);
+    resolution_legend->SetFillStyle(0);
+    resolution_legend->SetTextSize(0.02);
+    resolution_legend->SetTextFont(102);
+
+    // * draw reference resolution plots
+    std::vector<double> _resolution_mc_resolution = {0.164829,0.157141,0.147176,0.132711,0.121076,0.113879,0.108920,0.105994};
+    std::vector<double> _resolution_mc_energy = {60, 80, 100, 150, 200, 250, 300, 350};
+    std::vector<double> _resolution_mc_energy_error = {0,0,0,0,0,0,0,0};
+    std::vector<double> _resolution_mc_resolution_error = {0,0,0,0,0,0,0,0};
+    auto resolution_mc_graph = new TGraphErrors(_resolution_mc_energy.size(), &_resolution_mc_energy[0], &_resolution_mc_resolution[0], &_resolution_mc_energy_error[0], &_resolution_mc_resolution_error[0]);
+    // resolution_mc_graph->SetTitle("Resolution of ADC Sum");
+    // resolution_mc_graph->GetXaxis()->SetTitle("Beam Energy [GeV]");
+    // resolution_mc_graph->GetXaxis()->SetRangeUser(0, 400);
+    // resolution_mc_graph->GetYaxis()->SetTitle("#sigma_{E}/E");
+    // resolution_mc_graph->GetYaxis()->SetRangeUser(0.1, 0.4);
+    resolution_mc_graph->SetMarkerStyle(20);
+    resolution_mc_graph->SetMarkerSize(0.5);
+    resolution_mc_graph->SetMarkerColor(kGreen+3);
+    resolution_mc_graph->SetLineWidth(2);
+    resolution_mc_graph->SetLineColor(kGreen+3);
+    resolution_mc_graph->Draw("PE same");
+
+    resolution_legend->AddEntry(resolution_mc_graph, "Geant4 Simulation", "ep");
+
+    auto resolution_mc_fit_function = new TF1("resolution_mc_fit_function", "[0]/sqrt(x) + [1]", 0, 400);
+    resolution_mc_fit_function->SetParameter(0, 0.1);
+    resolution_mc_fit_function->SetParameter(1, 0.01);
+    resolution_mc_graph->Fit(resolution_mc_fit_function, "RQN");
+    resolution_mc_fit_function->SetLineColor(kGreen+3);
+    resolution_mc_fit_function->SetLineStyle(2);
+    resolution_mc_fit_function->Draw("SAME");
+
+    auto resolution_mc_fit_confidence_band = new TH1F("resolution_mc_fit_confidence_band", "resolution_mc_fit_confidence_band", 400, 0, 400);
+    TVirtualFitter *fitter_mc = TVirtualFitter::GetFitter();
+    if (fitter_mc) {
+        fitter_mc->GetConfidenceIntervals(resolution_mc_fit_confidence_band, 0.68);
+    } else {
+        LOG(WARNING) << "Fitter is not initialized. Confidence intervals will not be drawn.";
+    }
+    resolution_mc_fit_confidence_band->SetFillColorAlpha(kGreen+3, 0.3);
+    resolution_mc_fit_confidence_band->SetLineColor(kGreen+3);
+    resolution_mc_fit_confidence_band->SetMarkerColorAlpha(kGreen+3, 0.0);
+    resolution_mc_fit_confidence_band->SetLineStyle(2);
+    resolution_mc_fit_confidence_band->Draw("e3 SAME");
+
+    resolution_legend->AddEntry(resolution_mc_fit_function, ("#sigma_{E}/E   = #frac{" + std::to_string(resolution_mc_fit_function->GetParameter(0)).substr(0,4) + " #pm " + std::to_string(resolution_mc_fit_function->GetParError(0)).substr(0,3) + "}{#sqrt{E}} #oplus (" + std::to_string(resolution_mc_fit_function->GetParameter(1)).substr(0,4) + " #pm " + std::to_string(resolution_mc_fit_function->GetParError(1)).substr(0,4) + ")").c_str(), "l");
+
+    std::vector<double> _resolution_caen_resolution = {0.202903,0.193606,0.180118,0.157828,0.143362,0.135984,0.128683,0.124429};
+    std::vector<double> _resolution_caen_energy = {60, 80, 100, 150, 200, 250, 300, 350};
+    std::vector<double> _resolution_caen_energy_error = {1.2, 1.6, 2, 3, 4, 5, 6, 7};
+    std::vector<double> _resolution_caen_resolution_error = {0.0223685347754385,
+        0.0276764080400618,
+        0.0256984028686609,
+        0.0235984254347615,
+        0.016989855708628,
+        0.0151618517338747,
+        0.0109004483394033,
+        0.0102402795860269
+    };
+
+    auto resolution_caen_graph = new TGraphErrors(_resolution_caen_energy.size(), &_resolution_caen_energy[0], &_resolution_caen_resolution[0], &_resolution_caen_energy_error[0], &_resolution_caen_resolution_error[0]);
+    resolution_caen_graph->SetMarkerStyle(20);
+    resolution_caen_graph->SetMarkerSize(0.5);
+    resolution_caen_graph->SetMarkerColor(kOrange - 7);
+    resolution_caen_graph->SetLineWidth(2);
+    resolution_caen_graph->SetLineColor(kOrange - 7);
+    resolution_caen_graph->Draw("PE same");
+
+    resolution_legend->AddEntry(resolution_caen_graph, "CAEN Data", "ep");
+
+    auto resolution_caen_fit_function = new TF1("resolution_caen_fit_function", "[0]/sqrt(x) + [1]", 0, 400);
+    resolution_caen_fit_function->SetParameter(0, 0.1);
+    resolution_caen_fit_function->SetParameter(1, 0.01);
+    resolution_caen_graph->Fit(resolution_caen_fit_function, "RQN");
+    resolution_caen_graph->Draw("PE SAME");
+
+    resolution_caen_fit_function->SetLineColor(kOrange - 7);
+    resolution_caen_fit_function->SetLineStyle(2);
+    resolution_caen_fit_function->Draw("SAME");
+
+    resolution_legend->AddEntry(resolution_caen_graph, ("#sigma_{E}/E   = #frac{" + std::to_string(resolution_caen_fit_function->GetParameter(0)).substr(0,4) + " #pm " + std::to_string(resolution_caen_fit_function->GetParError(0)).substr(0,3) + "}{#sqrt{E}} #oplus (" + std::to_string(resolution_caen_fit_function->GetParameter(1)).substr(0,4) + " #pm " + std::to_string(resolution_caen_fit_function->GetParError(1)).substr(0,4) + ")").c_str(), "l");
+
+    auto resolution_caen_fit_confidence_band = new TH1F("resolution_caen_fit_confidence_band", "resolution_caen_fit_confidence_band", 400, 0, 400);
+    TVirtualFitter *fitter_caen = TVirtualFitter::GetFitter();
+    if (fitter_caen) {
+        fitter_caen->GetConfidenceIntervals(resolution_caen_fit_confidence_band, 0.68);
+    } else {
+        LOG(WARNING) << "Fitter is not initialized. Confidence intervals will not be drawn.";
+    }
+    resolution_caen_fit_confidence_band->SetFillColorAlpha(kOrange - 7, 0.3);
+    resolution_caen_fit_confidence_band->SetMarkerColorAlpha(kOrange - 7, 0.0);
+    resolution_caen_fit_confidence_band->SetLineColor(kOrange - 7);
+    resolution_caen_fit_confidence_band->SetLineStyle(2);
+    resolution_caen_fit_confidence_band->Draw("e3 SAME");
+
     auto resolution_graph = new TGraphErrors(reconstructed_beam_energy_list.size(), &reconstructed_beam_energy_list[0], &adc_sum_fit_sigmaE_E_list[0], &reconstructed_beam_energy_list_error[0], &adc_sum_fit_sigmaE_E_error_list[0]);
-    resolution_graph->SetTitle("Resolution of ADC Sum");
-    resolution_graph->GetXaxis()->SetTitle("Beam Energy [GeV]");
-    resolution_graph->GetXaxis()->SetRangeUser(0, 400);
-    resolution_graph->GetYaxis()->SetTitle("#sigma_{E}/E");
-    resolution_graph->GetYaxis()->SetRangeUser(0.1, 0.4);
     resolution_graph->SetMarkerStyle(20);
     resolution_graph->SetMarkerSize(0.5);
+    resolution_graph->SetMarkerColor(kMagenta - 3);
     resolution_graph->SetLineWidth(2);
+    resolution_graph->SetLineColor(kMagenta - 3);
     
     auto resolution_fit_function = new TF1("resolution_fit_function", "[0]/sqrt(x) + [1]", 0, 400);
     resolution_fit_function->SetParameter(0, 0.1);
@@ -982,27 +1094,24 @@ int main(int argc, char **argv) {
     resolution_graph->Fit(resolution_fit_function, "RQN");
     resolution_graph->Draw("PE SAME");
 
-    resolution_fit_function->SetLineColor(kRed);
+    resolution_fit_function->SetLineColor(kMagenta - 3);
     resolution_fit_function->SetLineStyle(2);
     resolution_fit_function->Draw("SAME");
 
-    auto resolution_fit_confidence_band = new TH1F("resolution_fit_confidence_band", "resolution_fit_confidence_band", 100, 0, 400);
+    resolution_legend->AddEntry(resolution_graph, "H2GCROC3A Data", "ep");
+
+    auto resolution_fit_confidence_band = new TH1F("resolution_fit_confidence_band", "resolution_fit_confidence_band", 400, 0, 400);
     TVirtualFitter *fitter = TVirtualFitter::GetFitter();
     if (fitter) {
         fitter->GetConfidenceIntervals(resolution_fit_confidence_band, 0.68);
     } else {
         LOG(WARNING) << "Fitter is not initialized. Confidence intervals will not be drawn.";
     }
-    resolution_fit_confidence_band->SetFillColorAlpha(kRed, 0.3);
-    resolution_fit_confidence_band->SetLineColor(kRed);
+    resolution_fit_confidence_band->SetFillColorAlpha(kMagenta - 3, 0.3);
+    resolution_fit_confidence_band->SetLineColor(kMagenta - 3);
+    resolution_fit_confidence_band->SetMarkerColorAlpha(kMagenta - 3, 0.0);
     resolution_fit_confidence_band->SetLineStyle(2);
     resolution_fit_confidence_band->Draw("e3 SAME");
-
-    auto resolution_legend = new TLegend(0.5, 0.7, 0.89, 0.89);
-    resolution_legend->SetBorderSize(0);
-    resolution_legend->SetFillStyle(0);
-    resolution_legend->SetTextSize(0.02);
-    resolution_legend->SetTextFont(102);
 
     double _resolution_fit_a = resolution_fit_function->GetParameter(0);
     double _resolution_fit_a_error = resolution_fit_function->GetParError(0);
@@ -1013,9 +1122,10 @@ int main(int argc, char **argv) {
 
     auto resolution_dummy_hist = new TH1D("resolution_dummy_hist", "resolution_dummy_hist", 1, 0, 1);
     resolution_dummy_hist->SetLineColor(kWhite);
-    resolution_legend->AddEntry(resolution_graph, "Gaussian Fit Resolution", "epl");
+
     resolution_legend->AddEntry(resolution_fit_function, ("#sigma_{E}/E   = #frac{" + std::to_string(_resolution_fit_a).substr(0,4) + " #pm " + std::to_string(_resolution_fit_a_error).substr(0,3) + "}{#sqrt{E}} #oplus (" + std::to_string(_resolution_fit_b).substr(0,4) + " #pm " + std::to_string(_resolution_fit_b_error).substr(0,4) + ")").c_str(), "l");
-    resolution_legend->AddEntry(resolution_dummy_hist, ("#chi^{2}/NDF = " + std::to_string(_resolution_fit_chi2).substr(0,4) + "/" + std::to_string(int(_resolution_fit_ndf))).c_str(), "l");
+    // resolution_legend->AddEntry(resolution_dummy_hist, ("#chi^{2}/NDF = " + std::to_string(_resolution_fit_chi2).substr(0,4) + "/" + std::to_string(int(_resolution_fit_ndf))).c_str(), "l");
+    
     resolution_legend->Draw();
 
     auto resolution_latex = new TLatex();

@@ -30,6 +30,7 @@ ScriptOptions parse_arguments_single_root(int argc, char **argv, const std::stri
     program.add_argument("-o", "--output").help("Output .root file").required();
     program.add_argument("-e", "--events").help("Number of events to process").default_value(std::string("-1"));
     program.add_argument("-v", "--verbose").help("Verbose mode").default_value(false).implicit_value(true);
+    program.add_argument("--focal").help("Use FoCal mapping").default_value(false).implicit_value(true);
 
     try {
         program.parse_args(argc, argv);
@@ -38,6 +39,7 @@ ScriptOptions parse_arguments_single_root(int argc, char **argv, const std::stri
         auto n_events_str = program.get<std::string>("--events");
         opts.n_events = std::stoi(n_events_str);
         opts.verbose = program.get<bool>("--verbose");
+        opts.focal = program.get<bool>("--focal");
     } catch (const std::runtime_error& err) {
         LOG(ERROR) << err.what();
         LOG(INFO) << program;
@@ -102,6 +104,7 @@ ScriptOptions parse_arguments_single_json(int argc, char **argv, const std::stri
     program.add_argument("-e", "--events").help("Number of events to process").default_value(std::string("-1"));
     program.add_argument("--focal").help("Use FoCal mapping").default_value(false).implicit_value(true);
     program.add_argument("-p", "--pedestal").help("Pedestal .root file").default_value(std::string(""));
+    program.add_argument("-c", "--csv").help("Input .csv file").default_value(std::string(""));
     program.add_argument("-v", "--verbose").help("Verbose mode").default_value(false).implicit_value(true);
 
     try {
@@ -111,6 +114,7 @@ ScriptOptions parse_arguments_single_json(int argc, char **argv, const std::stri
         auto n_events_str = program.get<std::string>("--events");
         opts.n_events = std::stoi(n_events_str);
         opts.focal = program.get<bool>("--focal");
+        opts.csv_file = program.get<std::string>("--csv");
         opts.verbose = program.get<bool>("--verbose");
         opts.pedestal_file = program.get<std::string>("--pedestal");
     } catch (const std::runtime_error& err) {

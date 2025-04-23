@@ -4,3 +4,4 @@ include: "rules/analysisPhase.smk"
 include: "rules/download.smk"
 
 include: "rules/analysisADC.smk"
+include: "rules/analysisToA.smk"

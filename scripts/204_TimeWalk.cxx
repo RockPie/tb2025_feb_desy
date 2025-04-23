@@ -30,6 +30,8 @@ double ExpCorrection(double *x, double *par) {
 int main(int argc, char **argv) {
     ScriptOptions opts = parse_arguments_single_root_single_csv(argc, argv, "1.1");
 
+    gROOT->SetBatch(kTRUE);
+
     bool enable_focal_mapping = opts.focal;
     bool enable_timewalk = opts.timewalk;
     std::string timewalk_file;
@@ -72,6 +74,9 @@ int main(int argc, char **argv) {
     const double toa_code_hist_min  = 0.0;
     const double toa_code_hist_max  = 1024.0;
     const int toa_code_hist_bins    = 256;
+
+    const int example_channel_number = 147;
+    const int module_to_check = 5;
 
     // * --- Global channel painter -----------------------------------------------------
     // * --------------------------------------------------------------------------------
@@ -409,6 +414,7 @@ int main(int argc, char **argv) {
                 auto _channel_valid = get_valid_fpga_channel(_channel_index);
                 auto _unified_valid_channel_number = get_unified_valid_fpga_channel(_fpga_id, _channel_valid);
                 auto _asic_index = int(_unified_valid_channel_number / (FPGA_CHANNEL_NUMBER_VALID / 2));
+                auto _asic_half_index = int(_unified_valid_channel_number / (FPGA_CHANNEL_NUMBER_VALID / 4)) % 2;
                 auto _channel_hist_index = channel_unified_channel_number_to_index_map[_unified_valid_channel_number];
                 if (_channel_valid == -1){
                     continue;
@@ -423,31 +429,81 @@ int main(int argc, char **argv) {
                 if (_val2_max > 0) {
                     auto _val2_time = decode_toa_value_ns(_val2_max);
                     double _toa_value_ns = _val2_max_index * sample_time + _val2_time;
-                    // ! -- Manually fix the TOA value
                     switch (_asic_index) {
                         case 0:
-                            if (_val2_max > 734.0) {
-                                _toa_value_ns -= 25.0;
+                            if (_asic_half_index == 0) {
+                                if (_val2_max > 734.0) {
+                                    _toa_value_ns -= 25.0;
+                                }
+                                break;
+                            } else {
+                                if (_val2_max > 984.0) {
+                                    _toa_value_ns -= 25.0;
+                                }
+                                break;
                             }
-                            break;
+                        break;
                         case 1:
-                            if (_val2_max < 224.0) {
-                                _toa_value_ns += 25.0;
+                            if (_asic_half_index == 0) {
+                                if (_val2_max < 234.0) {
+                                    _toa_value_ns += 25.0;
+                                }
+                                break;
+                            } else {
+                                break;
                             }
-                            break;
                         case 2:
-                            if (_val2_max < 224.0) {
-                                _toa_value_ns += 25.0;
+                            if (_asic_half_index == 0) {
+                                if (_val2_max < 234.0) {
+                                    _toa_value_ns += 25.0;
+                                }
+                                break;
+                            } else {
+                                if (_val2_max > 734.0) {
+                                    _toa_value_ns -= 25.0;
+                                }
+                                break;
                             }
-                            break;
                         case 3:
-                            if (_val2_max > 734.0) {
-                                _toa_value_ns -= 25.0;
+                            if (_asic_half_index == 0) {
+                                if (_val2_max > 734.0) {
+                                    _toa_value_ns -= 25.0;
+                                }
+                                break;
+                            } else {
+                                if (_val2_max > 734.0) {
+                                    _toa_value_ns -= 25.0;
+                                }
+                                break;
                             }
-                            break;
                         default:
                             break;
                     }
+                    // ! -- Manually fix the TOA value
+                    // switch (_asic_index) {
+                    //     case 0:
+                    //         if (_val2_max > 734.0) {
+                    //             _toa_value_ns -= 25.0;
+                    //         }
+                    //         break;
+                    //     case 1:
+                    //         if (_val2_max < 224.0) {
+                    //             _toa_value_ns += 25.0;
+                    //         }
+                    //         break;
+                    //     case 2:
+                    //         if (_val2_max < 224.0) {
+                    //             _toa_value_ns += 25.0;
+                    //         }
+                    //         break;
+                    //     case 3:
+                    //         if (_val2_max > 734.0) {
+                    //             _toa_value_ns -= 25.0;
+                    //         }
+                    //         break;
+                    //     default:
+                    //         break;
+                    // }
                     // ! -- Apply timewalk correction
                     if (!enable_timewalk) {
                         double _val0_max_double = double(_val0_max);
@@ -518,7 +574,7 @@ int main(int argc, char **argv) {
         canvas_channel_toa_time_projection_list.push_back(_canvas_projection);
     }
     // Save only the central module histograms
-    auto painter_canvas_toa_time_toa_code = global_painter->draw_module_channel_canvas(canvas_channel_toa_time_toa_code_list, channel_unified_channel_number_to_index_map, "ChannelTOATimeTOACode", "Channel TOA Time and TOA Code", 5);
+    auto painter_canvas_toa_time_toa_code = global_painter->draw_module_channel_canvas(canvas_channel_toa_time_toa_code_list, channel_unified_channel_number_to_index_map, "ChannelTOATimeTOACode", "Channel TOA Time and TOA Code", module_to_check);
     if (painter_canvas_toa_time_toa_code == nullptr) {
         LOG(ERROR) << "Failed to draw global channel canvas!";
         return 1;
@@ -528,7 +584,7 @@ int main(int argc, char **argv) {
     painter_canvas_toa_time_toa_code->Write();
     painter_canvas_toa_time_toa_code->Print((pdf_file_name + "(").c_str());
 
-    auto painter_canvas_toa_time_projection = global_painter->draw_module_channel_canvas(canvas_channel_toa_time_projection_list, channel_unified_channel_number_to_index_map, "ChannelTOATimeProjection", "Channel TOA Time Projection", 5);
+    auto painter_canvas_toa_time_projection = global_painter->draw_module_channel_canvas(canvas_channel_toa_time_projection_list, channel_unified_channel_number_to_index_map, "ChannelTOATimeProjection", "Channel TOA Time Projection", module_to_check);
     if (painter_canvas_toa_time_projection == nullptr) {
         LOG(ERROR) << "Failed to draw global channel canvas!";
         return 1;
@@ -551,6 +607,10 @@ int main(int argc, char **argv) {
     std::vector <double> fitting_results_B;
     std::vector <double> fitting_results_C;
     std::vector <int> fitting_unified_channel_numbers;
+
+    TGraphErrors *example_channel_toa_time_adc_max_graph = nullptr;
+    TF1 *example_channel_toa_time_adc_max_fitted = nullptr;
+    double example_channel_toa_time_adc_max_threshold = -1.0;
 
     LOG(INFO) << "Hist Array Size: " << channel_toa_time_adc_max_hist_list.size();
     for (int i = 0; i < channel_toa_time_adc_max_hist_list.size(); i++) {
@@ -654,6 +714,11 @@ int main(int argc, char **argv) {
         _canvas_fitted->cd();
         _graph->Draw("AP");
 
+        if (channel_index_to_unified_channel_number_map[i] == example_channel_number) {
+            example_channel_toa_time_adc_max_graph = (TGraphErrors*) _graph->Clone();
+            example_channel_toa_time_adc_max_threshold = _threshold_adc;
+        }
+
         // Draw the threshold line
         TLine *_threshold_line = new TLine(_threshold_adc, toa_time_hist_min, _threshold_adc, toa_time_hist_max);
         _threshold_line->SetLineColor(kRed);
@@ -696,6 +761,9 @@ int main(int argc, char **argv) {
         if (enable_timewalk) {
             _graph->Fit(_exp_fit, "RNQ");
             _exp_fit->Draw("same");
+            if (channel_index_to_unified_channel_number_map[i] == example_channel_number) {
+                example_channel_toa_time_adc_max_fitted = (TF1*) _exp_fit->Clone();
+            }
         }
 
         auto _exp_fit_A_value = _exp_fit->GetParameter(0);
@@ -723,7 +791,7 @@ int main(int argc, char **argv) {
         canvas_channel_toa_time_adc_max_fitted_list.push_back(_canvas_fitted);
     }
     // Save only the central module histograms
-    auto painter_canvas_toa_time_adc_max = global_painter->draw_module_channel_canvas(canvas_channel_toa_time_adc_max_list, channel_unified_channel_number_to_index_map, "ChannelTOATimeADCMax", "Channel TOA Time and ADC Max", 5);
+    auto painter_canvas_toa_time_adc_max = global_painter->draw_module_channel_canvas(canvas_channel_toa_time_adc_max_list, channel_unified_channel_number_to_index_map, "ChannelTOATimeADCMax", "Channel TOA Time and ADC Max", module_to_check);
     if (painter_canvas_toa_time_adc_max == nullptr) {
         LOG(ERROR) << "Failed to draw global channel canvas!";
         return 1;
@@ -733,7 +801,7 @@ int main(int argc, char **argv) {
     painter_canvas_toa_time_adc_max->Write();
     painter_canvas_toa_time_adc_max->Print(pdf_file_name.c_str());
 
-    auto painter_canvas_toa_time_adc_max_fitted = global_painter->draw_module_channel_canvas(canvas_channel_toa_time_adc_max_fitted_list, channel_unified_channel_number_to_index_map, "ChannelTOATimeADCMaxFitted", "Channel TOA Time and ADC Max Fitted", 5);
+    auto painter_canvas_toa_time_adc_max_fitted = global_painter->draw_module_channel_canvas(canvas_channel_toa_time_adc_max_fitted_list, channel_unified_channel_number_to_index_map, "ChannelTOATimeADCMaxFitted", "Channel TOA Time and ADC Max Fitted", module_to_check);
     if (painter_canvas_toa_time_adc_max_fitted == nullptr) {
         LOG(ERROR) << "Failed to draw global channel canvas!";
         return 1;
@@ -848,7 +916,7 @@ int main(int argc, char **argv) {
         canvas_channel_adc_samples_fitted_list.push_back(_canvas_fit);
     }
     // Save only the central module histograms
-    auto painter_canvas = global_painter->draw_module_channel_canvas(canvas_channel_adc_samples_list, channel_unified_channel_number_to_index_map, "ChannelADCSamples", "Channel ADC Samples", 5);
+    auto painter_canvas = global_painter->draw_module_channel_canvas(canvas_channel_adc_samples_list, channel_unified_channel_number_to_index_map, "ChannelADCSamples", "Channel ADC Samples", module_to_check);
     if (painter_canvas == nullptr) {
         LOG(ERROR) << "Failed to draw global channel canvas!";
         return 1;
@@ -858,7 +926,7 @@ int main(int argc, char **argv) {
     painter_canvas->Write();
     painter_canvas->Print(pdf_file_name.c_str());
 
-    auto painter_canvas_fitted = global_painter->draw_module_channel_canvas(canvas_channel_adc_samples_fitted_list, channel_unified_channel_number_to_index_map, "ChannelADCSamplesFitted", "Channel ADC Samples Fitted", 5);
+    auto painter_canvas_fitted = global_painter->draw_module_channel_canvas(canvas_channel_adc_samples_fitted_list, channel_unified_channel_number_to_index_map, "ChannelADCSamplesFitted", "Channel ADC Samples Fitted", module_to_check);
     if (painter_canvas_fitted == nullptr) {
         LOG(ERROR) << "Failed to draw global channel canvas!";
         return 1;
@@ -867,6 +935,88 @@ int main(int argc, char **argv) {
     output_root->cd();
     painter_canvas_fitted->Write();
     painter_canvas_fitted->Print(pdf_file_name.c_str());
+
+    // * --- Save the example channel histograms -----------------------------------------
+    // * --------------------------------------------------------------------------------
+    auto canvas_example_channel_toa_time_adc_max = new TCanvas("ExampleChannelTOATimeADCMax", "Example Channel TOA Time and ADC Max", 800, 600);
+    auto canvas_example_channel_toa_time_adc_max_legend = new TLegend(0.5, 0.7, 0.89, 0.89);
+    canvas_example_channel_toa_time_adc_max_legend->SetFillColor(0);
+    canvas_example_channel_toa_time_adc_max_legend->SetLineColor(0);
+    canvas_example_channel_toa_time_adc_max_legend->SetShadowColor(0);
+    canvas_example_channel_toa_time_adc_max_legend->SetBorderSize(0);
+    canvas_example_channel_toa_time_adc_max_legend->SetTextSize(0.02);
+    
+    example_channel_toa_time_adc_max_graph->GetXaxis()->SetRangeUser(channel_adc_hist_min, 620);
+    example_channel_toa_time_adc_max_graph->GetYaxis()->SetRangeUser(50, 170);
+    example_channel_toa_time_adc_max_graph->GetXaxis()->SetTitle("ADC Value");
+    example_channel_toa_time_adc_max_graph->GetYaxis()->SetTitle("TOA Time [ns]");
+    example_channel_toa_time_adc_max_graph->SetTitle("Example Channel TOA Time and ADC Max");
+    example_channel_toa_time_adc_max_graph->SetMarkerStyle(20);
+    example_channel_toa_time_adc_max_graph->SetMarkerSize(0.2);
+    example_channel_toa_time_adc_max_graph->SetMarkerColor(kBlack);
+    example_channel_toa_time_adc_max_graph->SetLineWidth(1);
+    example_channel_toa_time_adc_max_graph->SetLineColor(kBlack);
+
+    example_channel_toa_time_adc_max_graph->Draw("APE");
+    canvas_example_channel_toa_time_adc_max_legend->AddEntry(example_channel_toa_time_adc_max_graph, "Data", "pe");
+
+    // Draw the threshold line
+    TLine *threshold_line = new TLine(example_channel_toa_time_adc_max_threshold, 50, example_channel_toa_time_adc_max_threshold, 170);
+    threshold_line->SetLineColor(kCyan + 3);
+    threshold_line->SetLineWidth(1);
+    threshold_line->SetLineStyle(2);
+    threshold_line->Draw("same");
+    canvas_example_channel_toa_time_adc_max_legend->AddEntry(threshold_line, ("ToA Threshold: " + std::to_string(int(example_channel_toa_time_adc_max_threshold)) + " ADC").c_str(), "l");
+
+    // Draw the fitted line
+    example_channel_toa_time_adc_max_fitted->SetLineColor(kPink + 7);
+    example_channel_toa_time_adc_max_fitted->SetLineWidth(2);
+    example_channel_toa_time_adc_max_fitted->SetLineStyle(1);
+    example_channel_toa_time_adc_max_fitted->Draw("same");
+
+    auto example_fitting_A = example_channel_toa_time_adc_max_fitted->GetParameter(0);
+    auto example_fitting_B = example_channel_toa_time_adc_max_fitted->GetParameter(2);
+    auto example_fitting_C = example_channel_toa_time_adc_max_fitted->GetParameter(3);
+    auto example_fitting_x0 = example_channel_toa_time_adc_max_fitted->GetParameter(1);
+    
+    canvas_example_channel_toa_time_adc_max_legend->AddEntry(example_channel_toa_time_adc_max_fitted, ("Fit: " + std::to_string(example_fitting_A).substr(0, 5) + " * exp(" + std::to_string(example_fitting_B).substr(0, 5) + " * (x - " + std::to_string(example_fitting_x0).substr(0, 5) + ")) + " + std::to_string(example_fitting_C).substr(0, 5)).c_str(), "l");
+
+    // // Draw the confident band
+    // auto _fit_confidence_band = new TH1F("resolution_caen_fit_confidence_band", "resolution_caen_fit_confidence_band", 200, channel_adc_hist_min, channel_adc_hist_max);
+    // TVirtualFitter *fitter = TVirtualFitter::GetFitter();
+    // if (fitter) {
+    //     fitter->GetConfidenceIntervals(_fit_confidence_band, 0.68);
+    // } else {
+    //     LOG(WARNING) << "Fitter is not initialized. Confidence intervals will not be drawn.";
+    // }
+    // _fit_confidence_band->SetFillColorAlpha(kPink + 7, 0.5);
+    // _fit_confidence_band->SetFillStyle(1001);
+    // _fit_confidence_band->SetLineColorAlpha(kPink + 7, 0.0);
+    // _fit_confidence_band->SetMarkerColorAlpha(kPink + 7, 0.0);
+    // _fit_confidence_band->Draw("e3 same");
+
+    canvas_example_channel_toa_time_adc_max->cd();
+    canvas_example_channel_toa_time_adc_max_legend->Draw();
+
+    auto example_channel_toa_time_adc_max_latex = new TLatex();
+    example_channel_toa_time_adc_max_latex->SetNDC();
+    example_channel_toa_time_adc_max_latex->SetTextSize(0.04);
+    example_channel_toa_time_adc_max_latex->SetTextFont(62);
+    example_channel_toa_time_adc_max_latex->DrawLatex(0.13, 0.85, "FoCal-H Prototype II");
+    example_channel_toa_time_adc_max_latex->SetTextSize(0.03);
+    example_channel_toa_time_adc_max_latex->SetTextFont(42);
+    example_channel_toa_time_adc_max_latex->DrawLatex(0.13, 0.81, ("Channel " + std::to_string(example_channel_number) + ", ToA Time vs. ADC Max").c_str());
+    example_channel_toa_time_adc_max_latex->DrawLatex(0.13, 0.77, "SPS H2 Beam Line");
+    example_channel_toa_time_adc_max_latex->DrawLatex(0.13, 0.73, "September 2024");
+    example_channel_toa_time_adc_max_latex->SetTextFont(52);
+    example_channel_toa_time_adc_max_latex->SetTextColor(kGray + 3);
+    example_channel_toa_time_adc_max_latex->DrawLatex(0.13, 0.69, "Work in Progress");
+
+    canvas_example_channel_toa_time_adc_max->Update();
+    output_root->cd();
+    canvas_example_channel_toa_time_adc_max->Write();
+    canvas_example_channel_toa_time_adc_max->Print(pdf_file_name.c_str());
+
 
     // Close the pdf file by saving a dummy canvas
     auto dummy_canvas = new TCanvas("dummy_canvas", "dummy_canvas", 800, 600);

@@ -15,6 +15,7 @@
 #include "TGraphErrors.h"
 #include "TAxis.h"
 #include "TF1.h"
+#include "TF1Convolution.h"
 #include "TH2.h"
 #include "TLatex.h"
 #include "TFile.h"
@@ -59,6 +60,7 @@ struct ScriptOptions {
     std::string pedestal_file;
     std::string csv_file;
     std::string timewalk_file;
+    std::string fitting_file;
 };
 
 ScriptOptions parse_arguments_single_root(int argc, char **argv, const std::string& version = "0.1");

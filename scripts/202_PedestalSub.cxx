@@ -690,7 +690,7 @@ int main(int argc, char **argv) {
     single_peak_channel_distribution_graph_error->GetYaxis()->SetTitle("Pedestal Value [ADC]");
     single_peak_channel_distribution_graph_error->GetYaxis()->SetRangeUser(0, 256);
     single_peak_channel_distribution_graph_error->Draw("APE");
-    _legend->AddEntry(single_peak_channel_distribution_graph_error, "Single Peak", "ple");
+    _legend->AddEntry(single_peak_channel_distribution_graph_error, "Single Peak", "pe");
     
     dual_peak_channel_distribution_graph_error1->SetMarkerStyle(20);
     dual_peak_channel_distribution_graph_error1->SetMarkerSize(0.2);
@@ -699,7 +699,7 @@ int main(int argc, char **argv) {
     dual_peak_channel_distribution_graph_error1->SetLineWidth(1);
     dual_peak_channel_distribution_graph_error1->SetTitle("");
     dual_peak_channel_distribution_graph_error1->Draw("PE");
-    _legend->AddEntry(dual_peak_channel_distribution_graph_error1, "Dual Peak #1", "ple");
+    _legend->AddEntry(dual_peak_channel_distribution_graph_error1, "Double Peaks 1", "pe");
 
     dual_peak_channel_distribution_graph_error2->SetMarkerStyle(20);
     dual_peak_channel_distribution_graph_error2->SetMarkerSize(0.2);
@@ -708,7 +708,7 @@ int main(int argc, char **argv) {
     dual_peak_channel_distribution_graph_error2->SetLineWidth(1);
     dual_peak_channel_distribution_graph_error2->SetTitle("");
     dual_peak_channel_distribution_graph_error2->Draw("PE");
-    _legend->AddEntry(dual_peak_channel_distribution_graph_error2, "Dual Peak #2", "ple");
+    _legend->AddEntry(dual_peak_channel_distribution_graph_error2, "Double Peaks 2", "pe");
 
     _legend->Draw();
 

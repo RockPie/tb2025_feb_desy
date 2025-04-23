@@ -106,6 +106,24 @@ rule TemplateFit_FoCal:
     shell:
         "{input.script} -f {input.inputfile} -o {output.rootfile} -c {input.csvfile} -e {params.event} --focal -t {input.timewalkfile} &> {log}"
 
+rule TemplateFit_EEEMCal:
+    input:
+        script="build/205_TemplateFit",
+        inputfile="dump/102_EventMatch/EEEMCal/{sample}_matched.root",
+        csvfile="data/DESY_2025/config/PhaseScan_2V5_20250207_152421_Chn77.csv",
+        timewalkfile="dump/204_TimeWalk/EEEMCal/{sample}_timewalk.json"
+    output:
+        rootfile="dump/205_TemplateFit/EEEMCal/{sample}_fit.root",
+        jsonfile="dump/205_TemplateFit/EEEMCal/{sample}_fit.json"
+    # number of CPU cores to use
+    threads: 16
+    params:
+        event = lambda wildcards: config.get("event", -1)
+    log:
+        "logs/205_TemplateFit/EEEMCal/{sample}.log"
+    shell:
+        "{input.script} -f {input.inputfile} -o {output.rootfile} -c {input.csvfile} -e {params.event} -t {input.timewalkfile} &> {log}"
+
 rule Timewalk_FoCal:
     input:
         script="build/204_TimeWalk",
@@ -120,3 +138,54 @@ rule Timewalk_FoCal:
         "logs/204_TimeWalk/FoCal/{sample}_timewalk.log"
     shell:
         "{input.script} -f {input.inputfile} -o {output.rootfile} -c {input.csvfile} -e {params.event_timewalk} --focal --timewalk &> {log}"
+
+rule Timewalk_EEEMCal:
+    input:
+        script="build/204_TimeWalk",
+        inputfile="dump/102_EventMatch/EEEMCal/{sample}_matched.root",
+        csvfile="data/DESY_2025/config/PhaseScan_2V5_20250207_152421_Chn77.csv"
+    output:
+        rootfile="dump/204_TimeWalk/EEEMCal/{sample}_timewalk.root",
+        jsonfile="dump/204_TimeWalk/EEEMCal/{sample}_timewalk.json"
+    params:
+        event_timewalk = lambda wildcards: config.get("event_timewalk", -1)
+    log:
+        "logs/204_TimeWalk/EEEMCal/{sample}_timewalk.log"
+    shell:
+        "{input.script} -f {input.inputfile} -o {output.rootfile} -c {input.csvfile} -e {params.event_timewalk} --timewalk &> {log}"
+
+rule AnalysisFit_FoCal:
+    input:
+        config="data/SPS_2024/config/{sample}.json",
+        runfiles=lambda wildcards: json.load(open(f"data/SPS_2024/config/{wildcards.sample}.json"))["Run Files"],
+        script="build/206_AnalysisFit",
+        pede=lambda wildcards: json.load(open(f"data/SPS_2024/config/{wildcards.sample}.json"))["Pedestal Subtraction"],
+        timewalk=lambda wildcards: json.load(open(f"data/SPS_2024/config/{wildcards.sample}.json"))["TimeWalk JSON"],
+        fitting=lambda wildcards: json.load(open(f"data/SPS_2024/config/{wildcards.sample}.json"))["Fitting JSON"],
+        csvfile="data/SPS_2024/config/PhaseScan_2V5_20250207_152421_Chn77.csv"
+    output:
+        rootfile="dump/206_AnalysisFit/FoCal/{sample}.root"
+    params:
+        event_analysis = lambda wildcards: config.get("event_analysis", -1)
+    log:
+        "logs/206_AnalysisFit/FoCal/{sample}.log"
+    shell:
+        "build/206_AnalysisFit -f {input.config} -o {output.rootfile} -e {params.event_analysis} -p {input.pede} -c {input.csvfile} --focal &> {log}"
+
+rule AnalysisFit_EEEMCal:
+    input:
+        config="data/DESY_2025/config/{sample}.json",
+        runfiles=lambda wildcards: json.load(open(f"data/DESY_2025/config/{wildcards.sample}.json"))["Run Files"],
+        script="build/206_AnalysisFit",
+        pede=lambda wildcards: json.load(open(f"data/DESY_2025/config/{wildcards.sample}.json"))["Pedestal Subtraction"],
+        timewalk=lambda wildcards: json.load(open(f"data/DESY_2025/config/{wildcards.sample}.json"))["TimeWalk JSON"],
+        fitting=lambda wildcards: json.load(open(f"data/DESY_2025/config/{wildcards.sample}.json"))["Fitting JSON"],
+        csvfile="data/DESY_2025/config/PhaseScan_2V5_20250207_152421_Chn77.csv"
+    output:
+        rootfile="dump/206_AnalysisFit/EEEMCal/{sample}.root"
+    params:
+        event_analysis = lambda wildcards: config.get("event_analysis", -1)
+    log:
+        "logs/206_AnalysisFit/EEEMCal/{sample}.log"
+    shell:
+        "build/206_AnalysisFit -f {input.config} -o {output.rootfile} -e {params.event_analysis} -p {input.pede} -c {input.csvfile} &> {log}"

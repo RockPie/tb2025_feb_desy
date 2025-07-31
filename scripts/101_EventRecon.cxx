@@ -270,9 +270,15 @@ int main(int argc, char **argv){
                 crc32_list[_daqh_index] = input_crc32_list[_daqh_index];
             }
             for (int _channel_index = 0; _channel_index < FPGA_CHANNEL_NUMBER; _channel_index++) {
+                // if (input_val0_list[_channel_index] > 200) {
+                //     LOG(WARNING) << "Channel " << _channel_index << " has value " << input_val0_list[_channel_index] << ", which is greater than 200";
+                // }
                 tc_list[_channel_index] = input_tc_list[_channel_index];
                 tp_list[_channel_index] = input_tp_list[_channel_index];
                 val0_list[_channel_index] = input_val0_list[_channel_index];
+                // if (_channel_index > 76 && _channel_index < 76 + 76) {
+                //     LOG(INFO) << "FPGA" << input_fpga_id << " Chn" << _channel_index << " has value: " << input_val0_list[_channel_index];
+                // }
                 val1_list[_channel_index] = input_val1_list[_channel_index];
                 val2_list[_channel_index] = input_val2_list[_channel_index];
             }

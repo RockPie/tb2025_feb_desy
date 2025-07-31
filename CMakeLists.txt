@@ -3,6 +3,8 @@ set(CMAKE_CXX_STANDARD 17)
 
 project(tb2025_feb_desy)
 
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+
 # Set ROOT installation path explicitly
 set(ROOT_DIR "/home/shihai/sw/root/root_install")  # Adjust to your ROOT installation path
 list(APPEND CMAKE_PREFIX_PATH ${ROOT_DIR})
@@ -74,7 +76,7 @@ include_directories(${easyloggingpp_SOURCE_DIR}/src)
 # Compile easylogging++.cc as a static library
 add_library(easyloggingpp STATIC ${easyloggingpp_SOURCE_DIR}/src/easylogging++.cc)
 
-# Add your common library (NEW)
+# Add common library
 add_library(H2GCROC_Common STATIC
     src/H2GCROC_Common.cxx
 )
@@ -96,6 +98,30 @@ target_link_libraries(H2GCROC_Common PUBLIC
     OpenMP::OpenMP_CXX
 )
 
+# Add lib
+add_library(H2GCROC_Lib STATIC
+    src/H2GCROC_Lib.cxx
+)
+
+target_include_directories(H2GCROC_Lib PUBLIC
+     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${easyloggingpp_SOURCE_DIR}/src
+    ${ROOT_INCLUDE_DIRS}
+    ${json_SOURCE_DIR}/include
+    ${csv_parser_SOURCE_DIR}/single_include
+)
+
+target_link_libraries(H2GCROC_Lib PUBLIC
+    H2GCROC_Common
+    easyloggingpp
+    argparse
+    nlohmann_json::nlohmann_json  # Link JSON library
+    ${ROOT_LIBRARIES}
+    ROOT::ROOTDataFrame
+    OpenMP::OpenMP_CXX
+)
+
+
 # Find all script executables
 file(GLOB scripts ${CMAKE_CURRENT_SOURCE_DIR}/scripts/*.cxx)
 foreach(script ${scripts})
@@ -111,6 +137,7 @@ foreach(script ${scripts})
 
     target_link_libraries(${script_name}
         H2GCROC_Common
+        H2GCROC_Lib
         easyloggingpp
         argparse
         nlohmann_json::nlohmann_json

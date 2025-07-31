@@ -14,6 +14,12 @@ pede_samples_focal  = [file.split('/')[-1].replace('.json','') for file in pede_
 analysis_adc_samples_eeemal = [file.split('/')[-1].replace('.json','') for file in analysis_adc_config_files_eeemcal]
 analysis_adc_samples_focal  = [file.split('/')[-1].replace('.json','') for file in analysis_adc_config_files_focal]
 
+qc_all_files_eeemcal = glob.glob("data/DESY_2025/data/beam/Run*.h2g")
+qc_all_files_focal = glob.glob("data/SPS_2024/data/beam/Run*.h2g")
+
+qc_all_files_eeemcal = [file.split('/')[-1].replace('.h2g','') for file in qc_all_files_eeemcal]
+qc_all_files_focal = [file.split('/')[-1].replace('.h2g','') for file in qc_all_files_focal]
+
 rule Pedestal_EEEMCal:
     input:
         config="data/DESY_2025/config/{sample}.json",
@@ -49,6 +55,36 @@ rule Pedestal_EEEMCal_all:
 rule Pedestal_FoCal_all:
     input:
         expand("dump/202_PedestalSub/FoCal/{sample}.root", sample=pede_samples_focal)
+
+rule QC_EEEMCal:
+    input:
+        script="build/301_QC",
+        rootfile="dump/102_EventMatch/EEEMCal/{sample}_matched.root"
+    output:
+        rootfile="dump/301_QC/EEEMCal/{sample}_qc.root"
+    log:
+        "logs/301_QC/EEEMCal/{sample}.log"
+    shell:
+        "build/301_QC -f {input.rootfile} -o {output.rootfile} &> {log}"
+
+rule QC_FoCal:
+    input:
+        script="build/301_QC",
+        rootfile="dump/102_EventMatch/FoCal/{sample}_matched.root"
+    output:
+        rootfile="dump/301_QC/FoCal/{sample}_qc.root"
+    log:
+        "logs/301_QC/FoCal/{sample}.log"
+    shell:
+        "build/301_QC -f {input.rootfile} -o {output.rootfile} &> {log}"
+
+rule QC_EEEMCal_all:
+    input:
+        expand("dump/301_QC/EEEMCal/{sample}_qc.root", sample=qc_all_files_eeemcal)
+
+rule QC_FoCal_all:
+    input:
+        expand("dump/301_QC/FoCal/{sample}_qc.root", sample=qc_all_files_focal)
 
 rule AnalysisADC_EEEMCal:
     input:
@@ -123,6 +159,23 @@ rule TemplateFit_EEEMCal:
         "logs/205_TemplateFit/EEEMCal/{sample}.log"
     shell:
         "{input.script} -f {input.inputfile} -o {output.rootfile} -c {input.csvfile} -e {params.event} -t {input.timewalkfile} &> {log}"
+
+rule EventFit_FoCal:
+    input:
+        script="build/208_EventFit",
+        inputfile="dump/102_EventMatch/FoCal/{sample}_matched.root",
+        csvfile="data/SPS_2024/config/PhaseScan_2V5_20250207_152421_Chn77.csv",
+        timewalkfile="dump/204_TimeWalk/FoCal/Run770_timewalk.json"
+    output:
+        rootfile="dump/208_EventFit/FoCal/{sample}_fit.root"
+    # number of CPU cores to use
+    threads: 30
+    params:
+        event = lambda wildcards: config.get("event", -1)
+    log:
+        "logs/208_EventFit/FoCal/{sample}.log"
+    shell:
+        "{input.script} -f {input.inputfile} -o {output.rootfile} -c {input.csvfile} -e {params.event} --focal -t {input.timewalkfile} &> {log}"
 
 rule Timewalk_FoCal:
     input:

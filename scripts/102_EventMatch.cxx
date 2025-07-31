@@ -233,7 +233,7 @@ int main(int argc, char **argv){
     // ! --------------------------------------------------------------------------------
     const int SWMA_window_size = 50;
     const int SWMA_window_max = 200; // if one pool reaches this size, all pools are cleared
-    const int SWMA_variance = 200;
+    const int SWMA_variance = 2;
     int entry_max = input_tree->GetEntries();
     if (script_n_events > 0 && script_n_events < entry_max) {
         entry_max = script_n_events;

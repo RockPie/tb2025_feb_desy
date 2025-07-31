@@ -51,11 +51,12 @@ double fitParameterizedFunction(double *x, double *p, std::vector<double> para_t
     if (_xx < para_time.front() || _xx > para_time.back()) {
         return 0;
     }
+    double _template_pedestal = (para_values[0] + para_values[1]) * 0.5;
     for (size_t i = 0; i < para_time.size() - 1; ++i) {
         if (_xx >= para_time[i] && _xx < para_time[i+1]) {
             double _slope = (para_values[i+1] - para_values[i]) / (para_time[i+1] - para_time[i]);
-            double _intercept = para_values[i] + _slope * (_xx - para_time[i]);
-            double _res = p[0] * _intercept;
+            double _prediction = para_values[i] + _slope * (_xx - para_time[i]);
+            double _res = (p[0] * (_prediction - _template_pedestal)) + _template_pedestal;
             if (_res > 1023) {
                 return 1023;
             } else {
@@ -67,7 +68,7 @@ double fitParameterizedFunction(double *x, double *p, std::vector<double> para_t
 }
 
 int main(int argc, char **argv) {
-    ScriptOptions opts = parse_arguments_single_root_single_csv(argc, argv, "1.1");
+    ScriptOptions opts = parse_arguments_single_root_single_csv(argc, argv, "1.2");
 
     ROOT::EnableImplicitMT(30);
     gROOT->SetBatch(kTRUE);
@@ -86,7 +87,7 @@ int main(int argc, char **argv) {
 
     int fine_DNL_index = 0;
     for (auto& [key_str, value] : DNL_fine_TDC_json.items()) {
-        LOG(INFO) << "Channel " << key_str << " has fine DNL index " << fine_DNL_index;
+        //  DNL index " << fine_DNL_index;
         int channel_number = std::stoi(key_str);
         channel_to_fine_DNL_index[channel_number] = fine_DNL_index;
         // LOG(INFO) << "Channel " << channel_number << " has fine DNL index " << fine_DNL_index;
@@ -101,7 +102,7 @@ int main(int argc, char **argv) {
         if (all_null) {
             // No valid DNL — use default neutral correction
             factors = std::vector<double>(8, 1.0);  // assuming 3-bit TDC = 8 bins
-            LOG(WARNING) << "Channel " << channel_number << " has no valid DNL. Using neutral factors (1.0).";
+            // LOG(WARNING) << "Channel " << channel_number << " has no valid DNL. Using neutral factors (1.0).";
         } else {
             factors = value.get<std::vector<double>>();
         }
@@ -128,7 +129,7 @@ int main(int argc, char **argv) {
 
     int corase_DNL_index = 0;
     for (auto& [key_str, value] : DNL_corase_TDC_json.items()) {
-        LOG(INFO) << "Channel " << key_str << " has coarse DNL index " << corase_DNL_index;
+        // LOG(INFO) << "Channel " << key_str << " has coarse DNL index " << corase_DNL_index;
         int channel_number = std::stoi(key_str);
         channel_to_corase_DNL_index[channel_number] = corase_DNL_index;
     
@@ -142,7 +143,7 @@ int main(int argc, char **argv) {
         if (all_null) {
             // No valid DNL — use default neutral correction
             factors = std::vector<double>(32, 1.0);  // assuming 5-bit TDC = 32 bins
-            LOG(WARNING) << "Channel " << channel_number << " has no valid DNL in corase. Using neutral factors (1.0).";
+           //  LOG(WARNING) << "Channel " << channel_number << " has no valid DNL in corase. Using neutral factors (1.0).";
         } else {
             factors = value.get<std::vector<double>>();
         }
@@ -196,17 +197,21 @@ int main(int argc, char **argv) {
     const double toa_code_hist_max  = 1024.0;
     const int toa_code_hist_bins    = 256;
 
-    const double time_peak_value    = 75.0;
-    const double time_rising_ratio  = 1.6;
-    const double time_falling_ratio = 1.6;
+    const double time_peak_value    = 72.0;
+    const double time_rising_ratio  = 1.60;
+    const double time_falling_ratio = 1.75;
 
     const int example_fitting_channel = 145;
     const int module_to_check = 5;
 
-    const double _text_line_height = 0.04;
-    const double _text_line_start = 0.85;
-    const double _text_line_left = 0.13;
+    const double adc_sum_slice_min = 4000;
+    const double adc_sum_slice_max = 4500;
 
+    const double _text_line_height = 0.04;
+    const double _text_line_start  = 0.85;
+    const double _text_line_left   = 0.13;
+    
+    bool enable_fine_DNL_correction = true;
     // * --- Global channel painter -----------------------------------------------------
     // * --------------------------------------------------------------------------------
     GlobalChannelPainter *global_painter = nullptr;
@@ -475,8 +480,45 @@ int main(int argc, char **argv) {
     int _input_valid_tot_counter = 0;
     int _input_valid_toa_counter = 0;
 
+    std::vector <std::vector< std::vector <double> >> _input_adc_time_list_list;        // channel < event < sample
+    std::vector <std::vector< std::vector <double> >> _input_adc_time_list_list_temp;   // channel < event < sample
+    std::vector <std::vector< bool >> _input_adc_time_list_list_valid;                  // channel < event
+    std::vector <std::vector< double >> _input_adc_time_toa_time_list;             // channel < event
+
+    for (int _fpga_index = 0; _fpga_index < fpga_count; _fpga_index++) {
+        auto _fpga_id = legal_fpga_id_list[_fpga_index];
+        for (int _channel_index = 0; _channel_index < FPGA_CHANNEL_NUMBER; _channel_index++) {
+            auto _unified_valid_channel_number = get_unified_valid_fpga_channel(_fpga_id, _channel_index);
+            auto _channel_valid = get_valid_fpga_channel(_channel_index);
+            
+            std::vector <std::vector <double> > _input_adc_time_list_temp;
+            std::vector <std::vector <double> > _input_adc_time_list_temp_temp;
+            std::vector <bool> _input_adc_time_list_temp_valid;
+            std::vector <double> _input_adc_time_toa_time_list_temp;
+            
+            _input_adc_time_list_temp.resize(entry_max);
+            _input_adc_time_list_temp_temp.resize(entry_max);
+            _input_adc_time_list_temp_valid.resize(entry_max);
+            _input_adc_time_toa_time_list_temp.resize(entry_max);
+            
+            _input_adc_time_list_list.push_back(_input_adc_time_list_temp);
+            _input_adc_time_list_list_temp.push_back(_input_adc_time_list_temp_temp);
+            _input_adc_time_list_list_valid.push_back(_input_adc_time_list_temp_valid);
+            _input_adc_time_toa_time_list.push_back(_input_adc_time_toa_time_list_temp);
+        }
+    }
+
+    long counter_total_events = 0;
+    long counter_hamming_code_error = 0;
+    long counter_bad_daqh_start_end = 0;
+    long counter_hamming_code_passed = 0;
+    long counter_waveform_shape_passed = 0;
+    long counter_adc_max_passed = 0;
+
+    LOG(INFO) << "Start to read the events";
     for (int _entry = 0; _entry < entry_max; _entry++) {
         input_tree->GetEntry(_entry);
+        counter_total_events++;
         for (int _fpga_index = 0; _fpga_index < fpga_count; _fpga_index++) {
             auto _fpga_id    = legal_fpga_id_list[_fpga_index];
             auto _timestamp  = branch_timestamps_list[_fpga_index][0];
@@ -488,6 +530,8 @@ int main(int argc, char **argv) {
             auto _val2_list  = branch_val2_list_list[_fpga_index];
 
             std::vector <bool> _hamming_code_pass_list;
+            bool skip_event_hamming_code = false;
+            bool good_header_bytes = true;
             for (int _sample_index = 0; _sample_index < machine_gun_samples; _sample_index++) {
                 bool _hamming_code_pass = true;
                 for (int _daqh_index = 0; _daqh_index < 4; _daqh_index++){
@@ -496,8 +540,27 @@ int main(int argc, char **argv) {
                     if (_h1h2h3 != 0x00){
                         _hamming_code_pass = false;
                     }
+                    auto _daqh_first_half_byte = (_daqh >> 28) & 0xf;
+                    auto _daqh_last_half_byte  = _daqh & 0xf;
+                    if (_daqh_first_half_byte != 5 ||  _daqh_last_half_byte != 5) {
+                        good_header_bytes = false;
+                    }
                 }
                 _hamming_code_pass_list.push_back(_hamming_code_pass);
+                if (!_hamming_code_pass){
+                    skip_event_hamming_code = true;
+                    break;
+                }
+            }
+
+            if (skip_event_hamming_code){
+                counter_hamming_code_error++;
+                continue;
+            }
+
+            if (!good_header_bytes){
+                counter_bad_daqh_start_end++;
+                continue;
             }
 
             std::vector <int> _channel_val0_max_list;
@@ -676,69 +739,76 @@ int main(int argc, char **argv) {
                     }
                     // channel_toa_time_adc_max_DNL_sums[_channel_hist_index][_hist_nx_adc_max - 1][_hist_ny_adc_max - 1] += _fine_DNL_factor_value;
 
-                    if (_val0_max >= 1023) {
-                        continue;
-                    }
+                    // get the adc samples
                     std::vector <double> _val0_samples;
                     std::vector <double> _val0_time;
+                    double _val0_sum = 0;
                     for (int _sample_index = 0; _sample_index < machine_gun_samples; _sample_index++) {
                         auto _val0 = _val0_list[_channel_index + _sample_index * FPGA_CHANNEL_NUMBER];
                         double _sample_time = _sample_index * sample_time;
                         _sample_time -= (_toa_value_ns - 88.0);
                         _val0_samples.push_back(_val0);
                         _val0_time.push_back(_sample_time);
+                        _val0_sum += _val0 - _val0_list[_channel_index];
+                    } // end of the 2nd sample loop
+                    auto _val0_min = std::min(_val0_samples[0], _val0_samples[1]);
+
+                    counter_hamming_code_passed++;
+
+                    bool _event_valid_for_adc_time_analysis = true;
+                    // * filter on the ADC max value
+                    if (_val0_sum < adc_sum_slice_min || _val0_sum > adc_sum_slice_max){
+                        _event_valid_for_adc_time_analysis = false;
+                    } else {
+                        counter_adc_max_passed++;
+                    }
+                    // * filter on the waveform shape
+                    if (_val0_samples[2] < _val0_min || _val0_samples[3] < _val0_min || _val0_samples[3] < _val0_samples[2] ||  _val0_samples[4] < _val0_samples[2] ||_val0_samples[4] < _val0_samples[5] || _val0_samples[5] < _val0_samples[6] || _val0_samples[6] < _val0_samples[7] || _val0_samples[7] < _val0_samples[8] || _val0_samples[8] < _val0_samples[9]) {
+                        _event_valid_for_adc_time_analysis = false;
+                    } else {
+                        counter_waveform_shape_passed++;
+                    }
+                    _input_adc_time_list_list_valid[_channel_hist_index].push_back(_event_valid_for_adc_time_analysis);
+                    _input_adc_time_toa_time_list[_channel_hist_index].push_back(_toa_value_ns);
+
+                    auto _val0_time_temp = std::vector<double>(machine_gun_samples, 0);
+                    auto _val0_samples_temp = std::vector<double>(machine_gun_samples, 0);
+
+                    for (int _sample_index = 0; _sample_index < machine_gun_samples; _sample_index++) {
+                        _val0_time_temp[_sample_index] = _val0_time[_sample_index];
+                        _val0_samples_temp[_sample_index] = (_val0_samples[_sample_index] - _val0_min) + 60;
                     } // end of the 2nd sample loop
 
-                    // check if the waveform is valid
-                    bool _valid_waveform = true;
-                    // if sample #2 and #3 are larger than min(0, 1), then the waveform is valid
-                    auto _val0_min = std::min(_val0_samples[0], _val0_samples[1]);
-                    if (_val0_samples[2] < _val0_min) {
-                        _valid_waveform = false;
-                    }
-                    if (_val0_samples[3] < _val0_min) {
-                        _valid_waveform = false;
-                    }
-                    if (_val0_samples[3] < _val0_samples[2]) {
-                        _valid_waveform = false;
-                    }
-                    if (_valid_waveform){
-                        for (int _sample_index = 0; _sample_index < machine_gun_samples; _sample_index++) {
-                            channel_adc_samples_hist_list[_channel_hist_index]->Fill(_val0_time[_sample_index], _val0_samples[_sample_index]);
-                        }
-                    }
+                    _input_adc_time_list_list[_channel_hist_index].push_back(_val0_time_temp);
+                    _input_adc_time_list_list_temp[_channel_hist_index].push_back(_val0_samples_temp);
                 } // end of if toa max > 0
             } // end of the 2nd channel loop
         } // end of fpga loop
     } // end of event loop
 
-    input_root->Close();
+    LOG(INFO) << "Finish reading the events";
+    LOG(INFO) << "---------------------------------------------------";
 
+    LOG(INFO) << "Total events: " << counter_total_events;
+    LOG(INFO) << "Hamming code error rate: " << double(counter_hamming_code_error) / double(counter_total_events) * 100.0 << "%";
+    LOG(INFO) << "Bad daqh start end rate: " << double(counter_bad_daqh_start_end) / double(counter_total_events) * 100.0 << "%";
 
-    TColor *softBlue   = new TColor(4001, 0.35, 0.55, 0.75);  // Steel Blue
-    TColor *softRed    = new TColor(4002, 0.75, 0.35, 0.35);  // Soft Coral
-    TColor *softGreen  = new TColor(4003, 0.45, 0.65, 0.45);  // Sage Green
-    TColor *softPurple = new TColor(4004, 0.55, 0.45, 0.65);  // Lavender Gray
-    TColor *softTeal   = new TColor(4005, 0.35, 0.65, 0.65);  // Light Teal
-    TColor *softOrange = new TColor(4006, 0.85, 0.55, 0.35);  // Warm Orange
-    TColor *softBrown  = new TColor(4007, 0.65, 0.55, 0.45);  // Sand Brown
-    TColor *softGray   = new TColor(4008, 0.55, 0.55, 0.55);  // Mid Gray
-    TColor *softOlive  = new TColor(4009, 0.65, 0.65, 0.45);  // Olive Green
-    std::vector <Color_t> color_list = {kBlack, 4001, 4002, 4003, 4004, 4005, 4006, 4007, 4008, 4009};
+    LOG(INFO) << "Waveform filtering pass rate: " << double(counter_waveform_shape_passed) / double(counter_hamming_code_passed) * 100.0 << "%";
+    LOG(INFO) << "ADC sum slice percentage    : " << double(counter_adc_max_passed) / double(counter_hamming_code_passed) * 100.0 << "%";
 
-    // * --- Save the histograms --------------------------------------------------------
-    // * --------------------------------------------------------------------------------
-    std::string pdf_file_name = opts.output_file.substr(0, opts.output_file.find_last_of('.')) + ".pdf";
+    LOG(INFO) << "---------------------------------------------------";
 
-    bool enable_fine_DNL_correction = true;
-
-    // * --- Save the toa_time and toa_code histograms -----------------------------------
-    // * --------------------------------------------------------------------------------
     std::vector <TCanvas*> canvas_channel_toa_time_toa_code_list;
     std::vector <TCanvas*> canvas_channel_toa_time_projection_list;
 
+    std::vector <double> channel_toa_time_range_left;
+    std::vector <double> channel_toa_time_range_right;
+    
+
     TCanvas *canvas_example_toa_distribution = new TCanvas("ExampleToaDistribution", "Example TOA Distribution", 800, 600);
     for (int i = 0; i < channel_toa_time_toa_code_hist_list.size(); i++) {
+        channel_toa_time_range_left.push_back(0);
+        channel_toa_time_range_right.push_back(0);
         auto _canvas = new TCanvas(("ChannelTOATimeTOACode_" + std::to_string(channel_index_to_unified_channel_number_map[i])).c_str(), ("Channel TOA Time and TOA Code " + std::to_string(channel_index_to_unified_channel_number_map[i])).c_str(), 800, 600);
 
         channel_toa_time_toa_code_hist_list[i]->SetStats(0);
@@ -774,10 +844,12 @@ int main(int argc, char **argv) {
         _channel_toa_time_toa_code_projection->SetTitle("");
         _channel_toa_time_toa_code_projection->Draw("HIST");
 
+        canvas_channel_toa_time_projection_list.push_back(_canvas_projection);
+
 
         // do the fitting
         if (true) {
-            LOG(INFO) << "Channel " << channel_index_to_unified_channel_number_map[i] << " has " << _channel_toa_time_toa_code_projection->GetEntries() << " entries";
+            // LOG(INFO) << "Channel " << channel_index_to_unified_channel_number_map[i] << " has " << _channel_toa_time_toa_code_projection->GetEntries() << " entries";
             if  (_channel_toa_time_toa_code_projection->GetEntries() < 100) {
                 continue;
             }
@@ -788,11 +860,32 @@ int main(int argc, char **argv) {
 
             // use the formula double HalfGaussianFlat
             TF1* fit_half_gaussian_flat = new TF1("fit_half_gaussian_flat", HalfGaussianFlat, _fit_x_min, _fit_x_max, 4);
-            double _projection_x_mid = _channel_toa_time_toa_code_projection->GetXaxis()->GetBinCenter(_channel_toa_time_toa_code_projection->GetMaximumBin());
+            double _projection_x_mid = 0;
             double _projection_y_max = _channel_toa_time_toa_code_projection->GetMaximum();
-            fit_half_gaussian_flat->SetParameters(_projection_x_mid, 23.0, 2.0, 0.8*_projection_y_max);
-            fit_half_gaussian_flat->SetParLimits(0, _projection_x_mid - 30.0, _projection_x_mid + 30.0);
-            fit_half_gaussian_flat->SetParLimits(1, 20.0, 30.0);
+            // get the average x by averaging the cross-half-points
+            double _projection_x_cross_half_left = 0;
+            double _projection_x_cross_half_right = 0;
+            for (int j = 1; j < _channel_toa_time_toa_code_projection->GetNbinsX(); j++) {
+                auto _bin_content = _channel_toa_time_toa_code_projection->GetBinContent(j);
+                if (_bin_content > _projection_y_max / 4.0 && _projection_x_cross_half_left == 0) {
+                    _projection_x_cross_half_left = _channel_toa_time_toa_code_projection->GetBinCenter(j);
+                }
+                if (_bin_content < _projection_y_max / 4.0 && _projection_x_cross_half_left != 0) {
+                    _projection_x_cross_half_right = _channel_toa_time_toa_code_projection->GetBinCenter(j);
+                    break;
+                }
+            }
+            _projection_x_mid = (_projection_x_cross_half_left + _projection_x_cross_half_right) / 2.0;
+            // draw lines
+            auto _line = new TLine(_projection_x_mid, 0, _projection_x_mid, _projection_y_max);
+            _line->SetLineColor(kRed - 9);
+            _line->SetLineWidth(1);
+            _line->SetLineStyle(3);
+            _line->Draw("SAME");
+
+            fit_half_gaussian_flat->SetParameters(_projection_x_mid-12.5, 25.0, 2.0, 0.8*_projection_y_max);
+            fit_half_gaussian_flat->SetParLimits(0, _projection_x_mid - 42.5, _projection_x_mid + 17.5);
+            fit_half_gaussian_flat->SetParLimits(1, 25.0, 30.0);
             fit_half_gaussian_flat->SetParLimits(2, 0.1, 10.0);
             fit_half_gaussian_flat->SetParLimits(3, 0.2*_projection_y_max, _projection_y_max);
             _channel_toa_time_toa_code_projection->Fit(fit_half_gaussian_flat, "RQN");
@@ -802,6 +895,12 @@ int main(int argc, char **argv) {
             double _fit_half_gaussian_flat_sigma = fit_half_gaussian_flat->GetParameter(2);
             double _fit_half_gaussian_flat_amplitude = fit_half_gaussian_flat->GetParameter(3);
 
+            double _time_range_left  = _fit_half_gaussian_flat_central - 2.0 * _fit_half_gaussian_flat_sigma;
+            double _time_range_right = _fit_half_gaussian_flat_central + 2.0 * _fit_half_gaussian_flat_sigma + _fit_half_gaussian_flat_width;
+
+            channel_toa_time_range_left[i]  = _time_range_left;
+            channel_toa_time_range_right[i] = _time_range_right;
+
             auto fit_half_gaussian_flat_latex = new TLatex();
             fit_half_gaussian_flat_latex->SetTextSize(0.04);
             fit_half_gaussian_flat_latex->SetTextColor(kBlack);
@@ -809,143 +908,16 @@ int main(int argc, char **argv) {
             fit_half_gaussian_flat_latex->SetNDC();
 
             fit_half_gaussian_flat_latex->DrawLatex(0.05, 0.88, Form("Channel %d", channel_index_to_unified_channel_number_map[i]));
-            fit_half_gaussian_flat_latex->DrawLatex(0.05, 0.83, Form("Half Gaussian Central: %.2f ns", _fit_half_gaussian_flat_central));
-            fit_half_gaussian_flat_latex->DrawLatex(0.05, 0.78, Form("Half Gaussian Width: %.2f ns", _fit_half_gaussian_flat_width));
-            fit_half_gaussian_flat_latex->DrawLatex(0.05, 0.73, Form("Half Gaussian Sigma: %.2f ns", _fit_half_gaussian_flat_sigma));
-            fit_half_gaussian_flat_latex->DrawLatex(0.05, 0.68, Form("Half Gaussian Amplitude: %.2f", _fit_half_gaussian_flat_amplitude));
-
-
+            fit_half_gaussian_flat_latex->DrawLatex(0.05, 0.83, Form("Fit Central: %.2f ns", _fit_half_gaussian_flat_central));
+            fit_half_gaussian_flat_latex->DrawLatex(0.05, 0.78, Form("Fit Width: %.2f ns", _fit_half_gaussian_flat_width));
+            fit_half_gaussian_flat_latex->DrawLatex(0.05, 0.73, Form("Fit Sigma: %.2f ns", _fit_half_gaussian_flat_sigma));
+            fit_half_gaussian_flat_latex->DrawLatex(0.05, 0.68, Form("Fit Amplitude: %.2f", _fit_half_gaussian_flat_amplitude));
 
             fit_half_gaussian_flat->SetLineColor(kRed);
             fit_half_gaussian_flat->SetLineWidth(1);
             fit_half_gaussian_flat->SetLineStyle(2);
             fit_half_gaussian_flat->Draw("SAME");
 
-
-            // double _projection_y_max = _channel_toa_time_toa_code_projection->GetMaximum();
-            // bool _is_10percent_found = false;
-            // bool _is_90percent_found = false;
-
-            // double _previous_bin_content = 0.0;
-            // double _current_bin_content = 0.0;
-
-            // for (int _bin = 1; _bin <= _channel_toa_time_toa_code_projection->GetNbinsX(); _bin++) {
-            //     auto _bin_content = _channel_toa_time_toa_code_projection->GetBinContent(_bin);
-            //     _previous_bin_content = _current_bin_content;
-            //     _current_bin_content = _bin_content;
-            //     if (_is_10percent_found == false && _bin_content > (_projection_y_max * 0.10)) {
-            //         _fit_x_min = _channel_toa_time_toa_code_projection->GetBinLowEdge(_bin);
-            //         _is_10percent_found = true;
-            //     }
-            //     if (_is_90percent_found == false && _bin_content > (_projection_y_max * 0.50) && _previous_bin_content > _current_bin_content) {
-            //         _fit_x_max = _channel_toa_time_toa_code_projection->GetBinLowEdge(_bin);
-            //         _is_90percent_found = true;
-            //     }
-            // }
-
-            // // draw lines of the fit range
-            // auto _line_10percent = new TLine(_fit_x_min, 0.0, _fit_x_min, _projection_y_max);
-            // _line_10percent->SetLineColor(kBlue);
-            // _line_10percent->SetLineWidth(1);
-            // _line_10percent->SetLineStyle(2);
-            // auto _line_90percent = new TLine(_fit_x_max, 0.0, _fit_x_max, _projection_y_max);
-            // _line_90percent->SetLineColor(kRed);
-            // _line_90percent->SetLineWidth(1);
-            // _line_90percent->SetLineStyle(2);
-
-            // // _line_10percent->Draw("SAME");
-            // // _line_90percent->Draw("SAME");
-
-            // _fit_x_min -= 5.0;
-
-            // TF1* fit_gaussian = new TF1("fit_gaussian", "gaus", _fit_x_min, _fit_x_max);
-            // fit_gaussian->SetParameters(_projection_y_max, _channel_toa_time_toa_code_projection->GetBinCenter(_channel_toa_time_toa_code_projection->GetMaximumBin()), 1.0);
-            // fit_gaussian->SetParLimits(0, 0.0, _projection_y_max);
-            // fit_gaussian->SetParLimits(1, _fit_x_min, _fit_x_max);
-            // fit_gaussian->SetParLimits(2, 0.0, 10.0);
-            // _channel_toa_time_toa_code_projection->Fit(fit_gaussian, "RQN");
-
-            // double _fit_gaussian_mean = fit_gaussian->GetParameter(1);
-            // double _fit_gaussian_sigma = fit_gaussian->GetParameter(2);
-            // double _fit_gaussian_amplitude = fit_gaussian->GetParameter(0);
-
-            // auto fit_latex = new TLatex();
-            // fit_latex->SetTextSize(0.04);
-            // fit_latex->SetTextColor(kBlack);
-            // fit_latex->SetTextAlign(12);
-            // fit_latex->SetNDC();
-            // fit_latex->DrawLatex(0.05, 0.90, Form("Channel %d", channel_index_to_unified_channel_number_map[i]));
-            // fit_latex->DrawLatex(0.05, 0.85, Form("Gaussian Mean: %.2f ns", _fit_gaussian_mean));
-            // fit_latex->DrawLatex(0.05, 0.80, Form("Gaussian Sigma: %.2f ns", _fit_gaussian_sigma));
-            // fit_latex->DrawLatex(0.05, 0.75, Form("Gaussian Amplitude: %.2f", _fit_gaussian_amplitude));
-            
-            // fit_gaussian->SetLineColor(kRed);
-            // fit_gaussian->SetLineWidth(1);
-            // fit_gaussian->SetLineStyle(2);
-            // fit_gaussian->Draw("SAME");
-        
-
-            // double _fit_x_min = toa_time_hist_min;
-            // double _fit_x_max = toa_time_hist_max;
-            // TF1 *fit_toa_time_gauss = new TF1("fit_toa_time_gauss", "gaus", _fit_x_min, _fit_x_max);
-            // TF1 *fit_toa_time_gauss = new TF1("fit_toa_time_gauss", "[0]/([2]*sqrt(2*TMath::Pi())) * exp(-0.5*((x-[1])/[2])^2)", _fit_x_min, _fit_x_max);
-            // TF1 *fit_toa_time_broad = new TF1("fit_toa_time_broad", "[0]* (x > [1] && x < ([1] + [2]))", _fit_x_min, _fit_x_max);
-            // TF1Convolution *fit_toa_time_convolution = new TF1Convolution("fit_toa_time_gauss", "fit_toa_time_broad", _fit_x_min, _fit_x_max, true);
-            // TF1 *fit_convolution = new TF1("fit_convolution", *fit_toa_time_convolution, _fit_x_min, _fit_x_max, fit_toa_time_convolution->GetNpar());
-
-            // double _projection_y_max = _channel_toa_time_toa_code_projection->GetMaximum();
-            // double _projection_x_mid = _channel_toa_time_toa_code_projection->GetXaxis()->GetBinCenter(_channel_toa_time_toa_code_projection->GetMaximumBin());
-    
-            // double _initial_para_gaussian_sigma = 2.0; // 100 ps
-            // double _initial_para_gaussian_mean = 0.0;
-            // // double _initial_para_gaussian_amplitude = 0.5;
-            // double _initial_para_gaussian_area = 1.0;
-            // double _initial_para_broad_amplitude = _projection_y_max * 1.5;
-            // double _initial_para_broad_x1 = _projection_x_mid - 12.5;
-            // double _initial_para_broad_x2 = 25.0;
-    
-            // fit_convolution->SetParameters(_initial_para_gaussian_area, _initial_para_gaussian_mean, _initial_para_gaussian_sigma, _initial_para_broad_amplitude, _initial_para_broad_x1, _initial_para_broad_x2);
-            // // fix gaussian mean and amplitude
-            // fit_convolution->FixParameter(1, _initial_para_gaussian_mean);
-            // fit_convolution->FixParameter(0, _initial_para_gaussian_area);
-            // // limit the fitting range
-            // fit_convolution->SetParLimits(2, 0.0, 10.0);
-            // fit_convolution->SetParLimits(3, 1.0, _projection_y_max * 4.0);
-            // fit_convolution->SetParLimits(4, _initial_para_broad_x1 - 20.0, _initial_para_broad_x1 + 20.0);
-            // fit_convolution->SetParLimits(5, 10.0, 50.0);
-            
-            // _channel_toa_time_toa_code_projection->Fit(fit_convolution, "MULTITHREAD RNQ");
-
-            // double toa_resolution_broad_amplitude = fit_convolution->GetParameter(3);
-            // double toa_resolution_broad_x1 = fit_convolution->GetParameter(4);
-            // double toa_resolution_broad_x2 = fit_convolution->GetParameter(5);
-            // double toa_resolution_gaussian_sigma = fit_convolution->GetParameter(2);
-            // double toa_resolution_gaussian_mean = fit_convolution->GetParameter(1);
-            // double toa_resolution_gaussian_amplitude = fit_convolution->GetParameter(0);
-
-            // auto fit_latex_toa_resolution = new TLatex();
-            // fit_latex_toa_resolution->SetTextSize(0.04);
-            // fit_latex_toa_resolution->SetTextColor(kBlack);
-            // fit_latex_toa_resolution->SetTextAlign(12);
-            // fit_latex_toa_resolution->SetNDC();
-
-            // fit_latex_toa_resolution->DrawLatex(0.05, 0.90, Form("Channel %d", channel_index_to_unified_channel_number_map[i]));
-            // fit_latex_toa_resolution->DrawLatex(0.05, 0.85, Form("Gaussian Sigma: %.2f ns", toa_resolution_gaussian_sigma));
-            // fit_latex_toa_resolution->DrawLatex(0.05, 0.80, Form("Broad Amplitude: %.2f", toa_resolution_broad_amplitude));
-            // fit_latex_toa_resolution->DrawLatex(0.05, 0.75, Form("Broad Range: %.2f ns", (toa_resolution_broad_x2)));
-            // fit_latex_toa_resolution->DrawLatex(0.05, 0.70, Form("Broad Midpoint: %.2f ns", (toa_resolution_broad_x1 + (toa_resolution_broad_x2 / 2.0))));
-            // // fit_latex_toa_resolution->DrawLatex(0.05, 0.65, Form("Gaussian Mean: %.2f ns", toa_resolution_gaussian_mean));
-            // // fit_latex_toa_resolution->DrawLatex(0.05, 0.60, Form("Gaussian Amplitude: %.2f", toa_resolution_gaussian_amplitude));
-            
-            // fit_convolution->SetLineColor(kRed);
-            // fit_convolution->SetLineWidth(1);
-            // fit_convolution->SetLineStyle(3);
-            // fit_convolution->Draw("SAME");
-
-            // delete fit_toa_time_gauss;
-            // delete fit_toa_time_broad;
-            // delete fit_toa_time_convolution;
-            // delete fit_convolution;
             if (channel_index_to_unified_channel_number_map[i] == example_fitting_channel) {
                 canvas_example_toa_distribution->cd();
                 auto example_toa_legend = new TLegend(0.65, 0.7, 0.89, 0.89);
@@ -988,23 +960,6 @@ int main(int argc, char **argv) {
 
                 example_toa_legend->Draw("SAME");
 
-                // auto fit_half_gaussian_flat_latex_clone = new TLatex();
-                // fit_half_gaussian_flat_latex_clone->SetTextSize(0.04);
-                // fit_half_gaussian_flat_latex_clone->SetTextFont(62);
-                // fit_half_gaussian_flat_latex_clone->SetTextColor(kBlack);
-                // fit_half_gaussian_flat_latex_clone->SetTextAlign(12);
-                // fit_half_gaussian_flat_latex_clone->SetNDC();
-                // fit_half_gaussian_flat_latex_clone->DrawLatex(0.12, 0.87, "FoCal-H Prototype II");
-                // fit_half_gaussian_flat_latex_clone->SetTextSize(0.03);
-                // fit_half_gaussian_flat_latex_clone->SetTextFont(42);
-                // fit_half_gaussian_flat_latex_clone->DrawLatex(0.12, 0.82, Form("Channel %d", channel_index_to_unified_channel_number_map[i]));
-                // fit_half_gaussian_flat_latex_clone->DrawLatex(0.12, 0.77, Form("Single Channel ToA Distribution"));
-                // fit_half_gaussian_flat_latex_clone->DrawLatex(0.12, 0.72, "September 2024");
-
-                // fit_half_gaussian_flat_latex_clone->SetTextFont(52);
-                // fit_half_gaussian_flat_latex_clone->SetTextColor(kGray+3);
-                // fit_half_gaussian_flat_latex_clone->DrawLatex(0.12, 0.67, Form("Work in Progress"));
-
                 auto _toa_distribution_latex = new TLatex();
                 _toa_distribution_latex->SetNDC();
                 _toa_distribution_latex->SetTextSize(0.04);
@@ -1019,15 +974,84 @@ int main(int argc, char **argv) {
                 _toa_distribution_latex->SetTextColor(kGray + 3);
                 _toa_distribution_latex->DrawLatex(_text_line_left, _text_line_start - 4* _text_line_height, "Work in Progress");
 
-
             } // end of if example channel
         } // end of if fit
         
         _canvas_projection->Update();
-        
-        canvas_channel_toa_time_projection_list.push_back(_canvas_projection);
-
     }
+
+    long counter_toa_time_passed = 0;
+    long counter_toa_time_total = 0;
+
+    // ! Fill the data to channel_adc_samples_hist_list
+    for (int _fpga_index = 0; _fpga_index < fpga_count; _fpga_index++) {
+        auto _fpga_id = legal_fpga_id_list[_fpga_index];
+        for (int _channel_index = 0; _channel_index < FPGA_CHANNEL_NUMBER; _channel_index++) {
+            auto _channel_valid = get_valid_fpga_channel(_channel_index);
+            auto _unified_valid_channel_number = get_unified_valid_fpga_channel(_fpga_id, _channel_valid);
+            auto _channel_hist_index = channel_unified_channel_number_to_index_map[_unified_valid_channel_number];
+            // LOG(DEBUG) << "Channel " << _channel_hist_index;
+            auto _toa_range_left = channel_toa_time_range_left[_channel_hist_index];
+            auto _toa_range_right = channel_toa_time_range_right[_channel_hist_index];
+            // LOG(DEBUG) << "TOA range left: " << _toa_range_left << " right: " << _toa_range_right;
+
+            if (_channel_valid == -1){
+                continue;
+            }
+
+            auto _val0_time = _input_adc_time_list_list[_channel_hist_index];
+            auto _val0_samples = _input_adc_time_list_list_temp[_channel_hist_index];
+            auto _val0_valid = _input_adc_time_list_list_valid[_channel_hist_index];
+            auto _val0_toa_time = _input_adc_time_toa_time_list[_channel_hist_index];
+
+            for (int _event_index = 0; _event_index < _val0_samples.size(); _event_index++) {
+                auto _val0_samples_temp = _val0_samples[_event_index];
+                auto _val0_time_temp = _val0_time[_event_index];
+                auto _val0_toa_time_temp = _val0_toa_time[_event_index];
+                auto _val0_valid_temp = _val0_valid[_event_index];
+
+                if (_val0_valid_temp) {
+                    counter_toa_time_total++;
+                    if (_val0_toa_time_temp < _toa_range_left || _val0_toa_time_temp > _toa_range_right) {
+                        continue;
+                    } else {
+                        counter_toa_time_passed++;
+                    }
+                    for (int _sample_index = 0; _sample_index < machine_gun_samples; _sample_index++) {
+                        channel_adc_samples_hist_list[_channel_hist_index]->Fill(_val0_time_temp[_sample_index], _val0_samples_temp[_sample_index]);
+                    }
+                }
+            }
+        }
+    }
+
+    LOG(INFO) << "Finish data sample filling";
+    LOG(INFO) << "---------------------------------------------------";
+
+    LOG(INFO) << "ToA filtering pass rate: " << double(counter_toa_time_passed) / double(counter_toa_time_total) * 100.0 << "%";
+
+    LOG(INFO) << "---------------------------------------------------";
+        
+    input_root->Close();
+
+
+    TColor *softBlue   = new TColor(4001, 0.35, 0.55, 0.75);  // Steel Blue
+    TColor *softRed    = new TColor(4002, 0.75, 0.35, 0.35);  // Soft Coral
+    TColor *softGreen  = new TColor(4003, 0.45, 0.65, 0.45);  // Sage Green
+    TColor *softPurple = new TColor(4004, 0.55, 0.45, 0.65);  // Lavender Gray
+    TColor *softTeal   = new TColor(4005, 0.35, 0.65, 0.65);  // Light Teal
+    TColor *softOrange = new TColor(4006, 0.85, 0.55, 0.35);  // Warm Orange
+    TColor *softBrown  = new TColor(4007, 0.65, 0.55, 0.45);  // Sand Brown
+    TColor *softGray   = new TColor(4008, 0.55, 0.55, 0.55);  // Mid Gray
+    TColor *softOlive  = new TColor(4009, 0.65, 0.65, 0.45);  // Olive Green
+    std::vector <Color_t> color_list = {kBlack, 4001, 4002, 4003, 4004, 4005, 4006, 4007, 4008, 4009};
+
+    // * --- Save the histograms --------------------------------------------------------
+    // * --------------------------------------------------------------------------------
+    std::string pdf_file_name = opts.output_file.substr(0, opts.output_file.find_last_of('.')) + ".pdf";
+
+    // * --- Save the toa_time and toa_code histograms -----------------------------------
+    // * --------------------------------------------------------------------------------
     // Save only the central module histograms
     auto painter_canvas_toa_time_toa_code = global_painter->draw_module_channel_canvas(canvas_channel_toa_time_toa_code_list, channel_unified_channel_number_to_index_map, "ChannelTOATimeTOACode", "Channel TOA Time and TOA Code", module_to_check);
     if (painter_canvas_toa_time_toa_code == nullptr) {
@@ -1124,6 +1148,12 @@ int main(int argc, char **argv) {
             _bin_x_center_list_unfiltered.push_back(channel_toa_time_adc_max_hist_list[i]->GetXaxis()->GetBinCenter(_bin_index));
             if (_bin_entries > 0) {
                 double _xCentre = channel_toa_time_adc_max_hist_list[i]->GetXaxis()->GetBinCenter(_bin_index);
+                if (_xCentre < channel_adc_hist_min || _xCentre > channel_adc_hist_max) {
+                    continue;
+                }
+                if (_bin_mean < 50 || _bin_mean > 170) {
+                    continue;
+                }
                 _bin_x_center_list.push_back(_xCentre);
                 _bin_mean_list.push_back(_bin_mean);
                 _bin_error_y_list.push_back(_bin_rms / std::sqrt(_bin_entries));
@@ -1417,7 +1447,7 @@ int main(int argc, char **argv) {
         
         if (channel_event_number > 100) {
             std::vector<double> dac_fitting_chi2_list;
-            for (int _dac_index = 0; _dac_index < 20; _dac_index++) {
+            for (int _dac_index = 0; _dac_index < template_DAC_phase_results.size(); _dac_index++) {
                 auto _dac_sample = template_DAC_phase_results[_dac_index];
                 // Capture by value rather than by reference:
                 auto wrappedFitFunc = [=](double *x, double *par) {
@@ -1429,9 +1459,10 @@ int main(int argc, char **argv) {
                                              template_time_column_values.back(), 2);
                 
                 _average_fit->SetParameters(1.0, _initial_x0);
-                // _average_fit->SetParLimits(0, 0.9, 1.1);
+                // _average_fit->SetParLimits(0, 0.75, 1.25);
                 _average_fit->FixParameter(0, 1.0);
-                _average_fit->SetParLimits(1, -90.0, -10.0);
+                _average_fit->SetParLimits(1, -80.0, -20.0);
+                // _average_fit->FixParameter(1, -44.0);
                 
                 _graph->Fit(_average_fit, "MULTITHREAD RNQ");
 
@@ -1463,8 +1494,12 @@ int main(int argc, char **argv) {
                                              template_time_column_values.front(),
                                              template_time_column_values.back(), 2);
             _average_fit_opt->SetParameters(1.0, -50.0);
-            _average_fit_opt->SetParLimits(0, 0.9, 1.1);
-            _average_fit_opt->SetParLimits(1, -90.0, -10.0);
+            double amp_ratio_min = (double(_min_chi2_index) - 1.0) / double(_min_chi2_index);
+            double amp_ratio_max = (double(_min_chi2_index) + 1.0) / double(_min_chi2_index);
+            _average_fit_opt->SetParLimits(0, amp_ratio_min, amp_ratio_max);
+            //  _average_fit_opt->SetParLimits(0, 0.75, 1.25);
+            _average_fit_opt->SetParLimits(1, -80.0, -20.0);
+            // _average_fit_opt->FixParameter(1, -44.0);
             _average_fit_opt->SetLineColor(kRed + 3);
             _average_fit_opt->SetLineWidth(2);
             _average_fit_opt->SetLineStyle(1);
@@ -1486,6 +1521,7 @@ int main(int argc, char **argv) {
 
             _canvas_fit_legend->AddEntry(_average_fit_opt, ("Fit: A = " + std::to_string(_fit_A).substr(0, 5) + ", t_{offset} = " + std::to_string(_fit_x0).substr(0, 5)).c_str(), "l");
             _canvas_fit_legend->AddEntry(_average_fit_opt, ("DAC Sample: " + std::to_string(_min_chi2_index)).c_str(), "l");
+            _canvas_fit_legend->AddEntry(_average_fit_opt, ("#chi^{2}/ndf = " + std::to_string(_fit_chi2).substr(0, 5) + "/" + std::to_string(_fit_ndf)).c_str(), "l");
 
             if (_is_example_channel) {
                 example_fit_func = (TF1*)_average_fit_opt->Clone();
@@ -1504,6 +1540,47 @@ int main(int argc, char **argv) {
             example_average_waveform = (TGraphErrors*)_graph->Clone();
         }
     }
+    // draw the chi2/ndf distribution
+    auto _canvas_chi2 = new TCanvas("TemplateDACChi2", "Template DAC Chi2", 800, 600);
+    auto _graph_chi2 = new TH1D("TemplateDACChi2", "Template DAC Chi2", 50, 0, 100);
+    for (int i = 0; i < template_fit_result_chi2.size(); i++) {
+        _graph_chi2->Fill(template_fit_result_chi2[i] / template_fit_result_ndf[i]);
+    }
+    _graph_chi2->SetTitle("");
+    _graph_chi2->SetStats(0);
+    _graph_chi2->GetXaxis()->SetTitle("#chi^{2}/ndf");
+    _graph_chi2->GetYaxis()->SetTitle("Entries");
+
+    _graph_chi2->SetMarkerStyle(20);
+    _graph_chi2->SetMarkerSize(0.2);
+    _graph_chi2->SetMarkerColor(kBlack);
+    _graph_chi2->SetLineWidth(2);
+    _graph_chi2->SetLineColorAlpha(kBlack, 0.5);
+
+    _graph_chi2->GetXaxis()->SetRangeUser(0, 100);
+    _graph_chi2->GetYaxis()->SetRangeUser(0, _graph_chi2->GetMaximum() * 1.2);
+
+    _graph_chi2->Draw("HIST");
+
+    auto _chi2_latex = new TLatex();
+    _chi2_latex->SetNDC();
+    _chi2_latex->SetTextSize(0.04);
+    _chi2_latex->SetTextFont(62);
+    _chi2_latex->DrawLatex(_text_line_left, _text_line_start, "FoCal-H Prototype II");
+    _chi2_latex->SetTextSize(0.03);
+    _chi2_latex->SetTextFont(42);
+    _chi2_latex->DrawLatex(_text_line_left, _text_line_start - _text_line_height, "Template DAC Chi2/ndf");
+    _chi2_latex->DrawLatex(_text_line_left, _text_line_start - 2 * _text_line_height, "SPS H2 Beam Line");
+    _chi2_latex->DrawLatex(_text_line_left, _text_line_start - 3 * _text_line_height, "September 2024");
+    _chi2_latex->SetTextFont(52);
+    _chi2_latex->SetTextColor(kGray + 3);
+    _chi2_latex->DrawLatex(_text_line_left, _text_line_start - 54* _text_line_height, "Work in Progress");
+
+    _canvas_chi2->Update();
+
+    _canvas_chi2->Write();
+    _canvas_chi2->Print(pdf_file_name.c_str());
+
     // Save only the central module histograms
     LOG(INFO) << "Canvas Channel ADC Samples List Size: " << canvas_channel_adc_samples_list.size();
     auto painter_canvas = global_painter->draw_module_channel_canvas(canvas_channel_adc_samples_list, channel_unified_channel_number_to_index_map, "ChannelADCSamples", "Channel ADC Samples", module_to_check);
@@ -1624,6 +1701,8 @@ int main(int argc, char **argv) {
         dummy_hist->SetLineWidth(0);
 
         _canvas_example_channel_legend->AddEntry(dummy_hist, ("Best injection DAC: " + std::to_string(template_DAC_values[template_minimal_index_list[0]])).c_str(), "l");
+        _canvas_example_channel_legend->AddEntry(dummy_hist, ("#chi^{2}/ndf = " + std::to_string(example_fit_func->GetChisquare()).substr(0, 5) + "/" + std::to_string(example_fit_func->GetNDF())).c_str(), "l");
+        _canvas_example_channel_legend->AddEntry(dummy_hist, ("Slice: " + std::to_string(int(adc_sum_slice_min)) + " - " + std::to_string(int(adc_sum_slice_max))).c_str(), "l");
     }
 
     _canvas_example_channel_legend->Draw();

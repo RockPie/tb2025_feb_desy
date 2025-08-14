@@ -1,3 +1,28 @@
+import subprocess
+
+remote_dir = "/eos/experiment/alice/focal/tb2024_Sep_SPSH2/hcal/FoCalH"
+ssh_user = "sjia"
+ssh_server = "lxplus.cern.ch"
+ssh_pass = "workflow/rules/scp_pass.txt"
+
+cmd = f"sshpass -f {ssh_pass} ssh {ssh_user}@{ssh_server} 'ls {remote_dir}/*.h2g'"
+result = subprocess.check_output(cmd, shell=True, text=True)
+
+RUN_IDS = [
+    int(line.strip().split("Run")[1].split(".h2g")[0])
+    for line in result.strip().split("\n") if line.strip()
+]
+
+rule download_focal_all:
+    input:
+        expand("data/SPS_2024/data/beam/Run{run_id}.h2g", run_id=RUN_IDS)
+    output:
+        "data/SPS_2024/data/beam/all.done"
+    shell:
+        """
+        touch {output}
+        """
+
 rule download_focal_run_file:
     output:
         "data/SPS_2024/data/beam/Run{run_id}.h2g"

@@ -130,7 +130,7 @@ int main(int argc, char **argv){
     std::vector <int> legal_fpga_id_list;
     legal_fpga_id_list.reserve(32);
 
-    const int input_file_read_chunk_size = 4096; // in bytes
+    const int input_file_read_chunk_size = 1<<20; // in bytes
     const int input_file_bytes_thershold = 1452; // in bytes
     const int SWTFC_pool_size_base = 200;
     const int SWTFC_window_size_base = 150;

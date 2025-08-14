@@ -23,7 +23,7 @@ rule Rootifier_EEEMCal:
         BUILD_DIR + "/100_Rootifier",
         EEEMCal_DATA_DIR + "/Run{run_id}.h2g"
     output:
-        DUMP_DIR + "/100_Rootifier/EEEMCal/Run{run_id}_rootified.root"
+        temp(DUMP_DIR + "/100_Rootifier/EEEMCal/Run{run_id}_rootified.root")
     log:
         LOG_DIR + "/100_Rootifier/EEEMCal/Run{run_id}.log"
     shell:
@@ -38,7 +38,7 @@ rule Rootifier_FoCal:
         BUILD_DIR + "/100_Rootifier",
         FoCal_DATA_DIR + "/Run{run_id}.h2g"
     output:
-        DUMP_DIR + "/100_Rootifier/FoCal/Run{run_id}_rootified.root"
+        temp(DUMP_DIR + "/100_Rootifier/FoCal/Run{run_id}_rootified.root")
     log:
         LOG_DIR + "/100_Rootifier/FoCal/Run{run_id}.log"
     shell:
@@ -53,7 +53,7 @@ rule EventRecon_EEEMCal:
         BUILD_DIR + "/101_EventRecon",
         DUMP_DIR + "/100_Rootifier/EEEMCal/Run{run_id}_rootified.root"
     output:
-        DUMP_DIR + "/101_EventRecon/EEEMCal/Run{run_id}_recon.root"
+        temp(DUMP_DIR + "/101_EventRecon/EEEMCal/Run{run_id}_recon.root")
     log:
         LOG_DIR + "/101_EventRecon/EEEMCal/Run{run_id}.log"
     shell:
@@ -68,7 +68,7 @@ rule EventRecon_FoCal:
         BUILD_DIR + "/101_EventRecon",
         DUMP_DIR + "/100_Rootifier/FoCal/Run{run_id}_rootified.root"
     output:
-        DUMP_DIR + "/101_EventRecon/FoCal/Run{run_id}_recon.root"
+        temp(DUMP_DIR + "/101_EventRecon/FoCal/Run{run_id}_recon.root")
     log:
         LOG_DIR + "/101_EventRecon/FoCal/Run{run_id}.log"
     shell:

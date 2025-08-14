@@ -3,7 +3,13 @@ set(CMAKE_CXX_STANDARD 17)
 
 project(tb2025_feb_desy)
 
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -DNDEBUG")
 
 # Set ROOT installation path explicitly
 set(ROOT_DIR "/home/shihai/sw/root/root_install")  # Adjust to your ROOT installation path

@@ -31,7 +31,7 @@ rule compile:
 
         # Only re-run cmake if build dir doesn't exist
         if [ ! -d build ]; then
-            mkdir build && cd build && cmake ..
+            mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=Release ..
         fi
 
         # Build only the modified target

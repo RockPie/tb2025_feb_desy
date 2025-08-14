@@ -334,21 +334,21 @@ int main(int argc, char **argv) {
                     auto _val1 = int(_val1_list[_channel_index + _sample_index * FPGA_CHANNEL_NUMBER]);
                     auto _val2 = int(_val2_list[_channel_index + _sample_index * FPGA_CHANNEL_NUMBER]);
 
+                    if (_channel_index < 76) { // for the first ASIC
+                        if (_fpga_event_adc_sum_a0 < 0) {
+                            _fpga_event_adc_sum_a0 = 0;
+                        }
+                        _fpga_event_adc_sum_a0 += _val0;
+                    } else {
+                        if (_fpga_event_adc_sum_a1 < 0) {
+                            _fpga_event_adc_sum_a1 = 0;
+                        }
+                        _fpga_event_adc_sum_a1 += _val0;
+                    }
+
                     if (_val0 > 0 && _val0 > _val0_max){
                         _val0_max = _val0;
                         _val0_max_index = _sample_index;
-                        if (_channel_index < 76) { // for the first ASIC
-                             if (_fpga_event_adc_sum_a0 < 0) {
-                                _fpga_event_adc_sum_a0 = 0;
-                            }
-                            _fpga_event_adc_sum_a0 += _val0;
-                        } else {
-                            if (_fpga_event_adc_sum_a1 < 0) {
-                                _fpga_event_adc_sum_a1 = 0;
-                            }
-                            _fpga_event_adc_sum_a1 += _val0;
-                        }
-                       
                     }
                     if (_val1 > 0){
                         if (_val1_max == -1) {
